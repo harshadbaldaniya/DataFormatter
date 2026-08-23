@@ -104,12 +104,23 @@ const state = {
 };
 
 const DEFAULT_FORMAT = [
-  'EnrollmentNo','FirstName','MiddleName','LastName','StudentMobNo','EmailId',
-  'CurrentDegree','SSCPercentage','HSCPercentage','DiplomaPercentage',
-  'Graduation Percentage','Current CGPA','Resume Link','Job Profile'
+  {name:'Sr. No.', type:'serial'},
+  {name:'EnrollmentNo'},{name:'FirstName'},{name:'MiddleName'},{name:'LastName'},
+  {name:'StudentMobNo'},{name:'EmailId'},{name:'CurrentDegree'},{name:'SSCPercentage'},
+  {name:'HSCPercentage'},{name:'DiplomaPercentage'},{name:'Graduation Percentage'},
+  {name:'Current CGPA'},{name:'Resume Link'},{name:'Job Profile'}
 ];
 
-function formatKey(ctx){ return ctx==='attendance' ? 'lj_format_attendance_v1' : 'lj_format_v1'; }
+const ATTENDANCE_DEFAULT_FORMAT = [
+  {name:'Sr. No.', type:'serial'},
+  {name:'Name', type:'concat', keywords:['first','middle','last']},
+  {name:'Enrollment No.', type:'normal'},
+  {name:'Department', type:'normal'},
+  {name:'Signature', type:'blank'},
+  {name:'Remark', type:'blank'}
+];
+
+function formatKey(ctx){ return ctx==='attendance' ? 'lj_format_attendance_v2' : 'lj_format_v2'; }
 async function loadFmt(ctx){
   const key = formatKey(ctx);
   if(window.storage){
@@ -178,7 +189,9 @@ function handleFile(file, context){
     try{
       const wb = XLSX.read(new Uint8Array(e.target.result), {type:'array'});
       const sheet = wb.Sheets[wb.SheetNames[0]];
-      const aoa = XLSX.utils.sheet_to_json(sheet, {header:1, defval:'', raw:false});
+      const aoa = XLSX.utils.sheet_to_json(sheet, {header:1, defval:'', raw:true}).map(row=>
+        row.map(cell => typeof cell === 'number' ? (Number.isInteger(cell) ? cell.toString() : String(cell)) : cell)
+      );
       if(!aoa.length){ alert('File is empty.'); return; }
       const headers = aoa[0].map(h=>String(h).trim()).filter(Boolean);
       const rows = aoa.slice(1).filter(r=>r.some(c=>String(c).trim()!=='')).map(r=>{
@@ -197,13 +210,13 @@ async function proceedAfterUpload(){
     state.permanentFormat = loaded;
     state.step = 2;
   }else if(state.context==='student'){
-    state.permanentFormat = DEFAULT_FORMAT.map(name => ({id:uid(), name}));
+    state.permanentFormat = DEFAULT_FORMAT.map(c => ({id:uid(), name:c.name, type:c.type}));
     await saveFmt(state.permanentFormat);
     state.step = 2;
   }else{
-    state.permanentFormat = null;
-    state.draft = DEFAULT_FORMAT.map(name => ({id:uid(), name}));
-    state.step = 20;
+    state.permanentFormat = ATTENDANCE_DEFAULT_FORMAT.map(c => ({id:uid(), name:c.name, type:c.type, keywords:c.keywords}));
+    await saveFmt(state.permanentFormat);
+    state.step = 2;
   }
   render();
 }
@@ -228,12 +241,19 @@ async function saveOnboarding(){
 }
 
 /* choose permanent / edit */
+function buildCurrentFormat(){
+  return state.permanentFormat.map(c=>{
+    if(c.type==='serial') return {id:c.id, name:c.name, type:'serial'};
+    if(c.type==='blank') return {id:c.id, name:c.name, type:'blank'};
+    if(c.type==='concat') return {id:c.id, name:c.name, type:'concat', keywords:c.keywords,
+      partHeaders:(c.keywords||[]).map(kw=>state.headers.find(h=>norm(h).includes(kw))||null)};
+    return {id:c.id, name:c.name, source: autoMatch(c.name, state.headers)};
+  });
+}
 function selectPermanent(){
   state.modeChoice = 'permanent';
   state.mode = 'permanent';
-  state.currentFormat = state.permanentFormat.map(c=>({
-    id:c.id, name:c.name, source: autoMatch(c.name, state.headers)
-  }));
+  state.currentFormat = buildCurrentFormat();
   buildOutput();
   state.submitted = true;
   downloadFile();
@@ -248,9 +268,7 @@ function selectEdit(){
 function proceedChoice(){
   if(state.modeChoice!=='edit') return;
   state.mode = 'edit';
-  state.currentFormat = state.permanentFormat.map(c=>({
-    id:c.id, name:c.name, source: autoMatch(c.name, state.headers)
-  }));
+  state.currentFormat = buildCurrentFormat();
   state.submitted = false;
   state.step = 3;
   render();
@@ -296,11 +314,39 @@ function addCol(){
   state.currentFormat.push({id:uid(), name, source: autoMatch(name, state.headers)});
   input.value=''; render();
 }
+function addNameConcat(){
+  const find = kw => state.currentFormat.find(c=>norm(c.name).includes(kw));
+  const first = find('first');
+  const middle = find('middle');
+  const last = find('last');
+  const parts = [first, middle, last].filter(Boolean).map(c=>c.id);
+  if(!parts.length){ alert('Could not find First/Middle/Last Name columns to combine.'); return; }
+  if(state.currentFormat.some(c=>norm(c.name)==='name')) { alert('A "Name" column already exists.'); return; }
+  state.currentFormat.push({id:uid(), name:'Name', concat:true, parts});
+  render();
+}
 
 function buildOutput(){
   state.outputHeaders = state.currentFormat.map(c=>c.name);
-  state.outputRows = state.rows.map(r=>{
-    const o={}; state.currentFormat.forEach(c=>{ o[c.name] = c.source ? (r[c.source]??'') : ''; }); return o;
+  state.outputRows = state.rows.map((r,ri)=>{
+    const o={};
+    state.currentFormat.forEach(c=>{
+      if(c.type==='serial'){
+        o[c.name] = ri+1;
+      }else if(c.type==='blank'){
+        o[c.name] = '';
+      }else if(c.type==='concat'){
+        o[c.name] = (c.partHeaders||[]).map(h=> h ? (r[h]??'') : '').filter(Boolean).join(' ').trim();
+      }else if(c.concat){
+        o[c.name] = c.parts.map(pid=>{
+          const pc = state.currentFormat.find(x=>x.id===pid);
+          return pc && pc.source ? (r[pc.source] ?? '') : '';
+        }).filter(Boolean).join(' ').trim();
+      }else{
+        o[c.name] = c.source ? (r[c.source]??'') : '';
+      }
+    });
+    return o;
   });
 }
 function submitCols(){
@@ -435,10 +481,16 @@ function renderColumns(){
         ${locked
           ? `<div class="name">${esc(c.name)}</div>`
           : `<input class="name" value="${esc(c.name)}" onchange="colRename('${c.id}', this.value)">`}
-        <select class="src" onchange="colSetSource('${c.id}', this.value)">
+        ${c.type==='serial'
+          ? `<div class="name" style="flex:1;color:var(--muted);">Auto Sr. No.</div>`
+          : c.type==='blank'
+          ? `<div class="name" style="flex:1;color:var(--muted);">Blank column</div>`
+          : (c.type==='concat' || c.concat)
+          ? `<div class="name" style="flex:1;color:var(--muted);">Combined column</div>`
+          : `<select class="src" onchange="colSetSource('${c.id}', this.value)">
           <option value="">(no match)</option>
           ${state.headers.map(h=>`<option value="${esc(h)}" ${c.source===h?'selected':''}>${esc(h)}</option>`).join('')}
-        </select>
+        </select>`}
         ${locked ? '' : `
         <button class="icon-btn" draggable="true" ondragstart="dragStart(event,'current',${i})" ondragend="dragEnd()">=</button>
         <button class="icon-btn x" onclick="colDel('${c.id}')">&times;</button>`}
@@ -447,7 +499,8 @@ function renderColumns(){
     <div class="add-row">
       <input id="newColName" placeholder="Add Column Name" onkeydown="if(event.key==='Enter') addCol();">
       <button class="icon-btn" onclick="addCol()">+</button>
-    </div>`}
+    </div>
+    <button class="btn btn-ghost btn-sm" style="width:100%;margin-top:10px;" onclick="addNameConcat()">+ Add "Name" (First + Middle + Last combined)</button>`}
     <button class="btn btn-gold" onclick="submitCols()">Submit</button>
   `;
 }
