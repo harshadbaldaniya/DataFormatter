@@ -7,8 +7,8 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
   :root{
-    --bg:#f7f7f8; --surface:#ffffff; --border:#e0e0e3; --text:#20232a;
-    --muted:#6b7280; --faint:#9aa1ac; --accent:#b8860b; --red:#c4554d;
+    --bg:#0b1120; --surface:#111a2e; --border:#22304a; --text:#e6ebf5;
+    --muted:#8fa0bd; --faint:#526183; --accent:#3b82f6; --red:#c4554d;
     --radius:6px; --font:'Segoe UI',Arial,sans-serif; --mono:'Consolas','Courier New',monospace;
   }
   *{box-sizing:border-box;}
@@ -67,8 +67,8 @@
   .btn{width:100%;padding:12px;border-radius:var(--radius);border:1px solid var(--border);background:var(--surface);
     color:var(--text);font-size:14px;font-weight:600;cursor:pointer;margin-top:22px;}
   .btn:hover{border-color:var(--faint);}
-  .btn-gold{background:var(--accent);border-color:var(--accent);color:#1a1508;}
-  .btn-gold:hover{background:#dcb52f;}
+  .btn-gold{background:var(--accent);border-color:var(--accent);color:#ffffff;}
+  .btn-gold:hover{background:#2f6fd1;}
   .btn[disabled]{opacity:.35;filter:blur(.3px);cursor:not-allowed;}
   .btn[disabled]:hover{border-color:var(--border);}
   .link-btn{display:block;text-align:center;margin-top:14px;font-size:12.5px;color:var(--faint);
@@ -97,7 +97,7 @@
 <div id="app"></div>
 <script>
 const state = {
-  step: 1, fileName:null, headers:[], rows:[],
+  step: 1, fileName:null, headers:[], rows:[], context:'student',
   permanentFormat: null, mode:null, modeChoice:null,
   currentFormat: [], outputHeaders:[], outputRows:[], submitted:false,
   onboarding:false, draft:[],
@@ -109,23 +109,26 @@ const DEFAULT_FORMAT = [
   'Graduation Percentage','Current CGPA','Resume Link','Job Profile'
 ];
 
-async function loadFmt(){
+function formatKey(ctx){ return ctx==='attendance' ? 'lj_format_attendance_v1' : 'lj_format_v1'; }
+async function loadFmt(ctx){
+  const key = formatKey(ctx);
   if(window.storage){
     try{
-      const r = await window.storage.get('lj_format_v1');
+      const r = await window.storage.get(key);
       if(r && r.value) return JSON.parse(r.value);
     }catch(e){ /* no saved format yet */ }
     return null;
   }
-  try{ const r=localStorage.getItem('lj_format_v1'); return r?JSON.parse(r):null; }catch(e){ return null; }
+  try{ const r=localStorage.getItem(key); return r?JSON.parse(r):null; }catch(e){ return null; }
 }
-async function saveFmt(cols){
+async function saveFmt(cols, ctx){
+  const key = formatKey(ctx || state.context);
   if(window.storage){
-    try{ await window.storage.set('lj_format_v1', JSON.stringify(cols)); }
+    try{ await window.storage.set(key, JSON.stringify(cols)); }
     catch(e){ console.warn('save failed', e); }
     return;
   }
-  try{ localStorage.setItem('lj_format_v1', JSON.stringify(cols)); }catch(e){}
+  try{ localStorage.setItem(key, JSON.stringify(cols)); }catch(e){}
 }
 
 const FIELD_ALIASES = {
@@ -163,12 +166,13 @@ function autoMatch(name, headers){
 function esc(s){ return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
 
 function resetAll(){
-  state.step=1; state.fileName=null; state.headers=[]; state.rows=[];
+  state.step=1; state.fileName=null; state.headers=[]; state.rows=[]; state.context='student';
   state.mode=null; state.modeChoice=null; state.currentFormat=[]; state.outputHeaders=[];
   state.outputRows=[]; state.submitted=false; state.onboarding=false; render();
 }
 
-function handleFile(file){
+function handleFile(file, context){
+  state.context = context || 'student';
   const reader = new FileReader();
   reader.onload = e => {
     try{
@@ -182,11 +186,26 @@ function handleFile(file){
       });
       if(!headers.length || !rows.length){ alert('Could not find header + data rows.'); return; }
       state.fileName=file.name; state.headers=headers; state.rows=rows;
-      state.step = state.permanentFormat ? 2 : 20; // 20 = onboarding
-      render();
+      proceedAfterUpload();
     }catch(err){ console.error(err); alert('Could not read this file.'); }
   };
   reader.readAsArrayBuffer(file);
+}
+async function proceedAfterUpload(){
+  const loaded = await loadFmt(state.context);
+  if(loaded && loaded.length){
+    state.permanentFormat = loaded;
+    state.step = 2;
+  }else if(state.context==='student'){
+    state.permanentFormat = DEFAULT_FORMAT.map(name => ({id:uid(), name}));
+    await saveFmt(state.permanentFormat);
+    state.step = 2;
+  }else{
+    state.permanentFormat = null;
+    state.draft = DEFAULT_FORMAT.map(name => ({id:uid(), name}));
+    state.step = 20;
+  }
+  render();
 }
 
 /* onboarding: define permanent columns once */
@@ -204,7 +223,7 @@ function draftDel(id){ state.draft=state.draft.filter(c=>c.id!==id); render(); }
 async function saveOnboarding(){
   if(!state.draft.length){ alert('Add at least one column.'); return; }
   state.permanentFormat = state.draft.map(c=>({id:c.id,name:c.name}));
-  await saveFmt(state.permanentFormat);
+  await saveFmt(state.permanentFormat, state.context);
   state.step = 2; render();
 }
 
@@ -332,7 +351,7 @@ function render(){
   else if(state.step===4) body = renderDownload();
 
   app.innerHTML = `
-    <h1>Student Data Formatter</h1>
+    <h1>${state.fileName ? (state.context==='attendance' ? 'Attendance' : 'Student Data + Contact CSV') : 'Student Data Formatter'}</h1>
     ${state.fileName && state.step!==1 ? `<div class="file-chip"><span>${esc(state.fileName)} · ${state.rows.length} rows</span><button onclick="resetAll()">Remove</button></div>` : ''}
     ${body}
   `;
@@ -340,18 +359,36 @@ function render(){
   if(state.step===1){
     const dz=document.getElementById('dropzone'), fi=document.getElementById('fileInput');
     dz.addEventListener('click', ()=>fi.click());
-    fi.addEventListener('change', e=>{ if(e.target.files[0]) handleFile(e.target.files[0]); });
+    fi.addEventListener('change', e=>{ if(e.target.files[0]) handleFile(e.target.files[0],'student'); });
     dz.addEventListener('dragover', e=>{ e.preventDefault(); dz.classList.add('drag'); });
     dz.addEventListener('dragleave', ()=>dz.classList.remove('drag'));
-    dz.addEventListener('drop', e=>{ e.preventDefault(); dz.classList.remove('drag'); if(e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]); });
+    dz.addEventListener('drop', e=>{ e.preventDefault(); dz.classList.remove('drag'); if(e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0],'student'); });
+
+    const dzA=document.getElementById('dropzoneAttendance'), fiA=document.getElementById('fileInputAttendance');
+    dzA.addEventListener('click', ()=>fiA.click());
+    fiA.addEventListener('change', e=>{ if(e.target.files[0]) handleFile(e.target.files[0],'attendance'); });
+    dzA.addEventListener('dragover', e=>{ e.preventDefault(); dzA.classList.add('drag'); });
+    dzA.addEventListener('dragleave', ()=>dzA.classList.remove('drag'));
+    dzA.addEventListener('drop', e=>{ e.preventDefault(); dzA.classList.remove('drag'); if(e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0],'attendance'); });
   }
 }
 
 function renderUpload(){
   return `
-    <div class="dropzone" id="dropzone"><span class="arrow">&#8595;</span></div>
-    <div class="upload-label">Upload File</div>
+    <div style="display:flex;gap:24px;justify-content:center;flex-wrap:wrap;">
+      <div style="text-align:center;">
+        <div class="dropzone" id="dropzone"><span class="arrow">&#8595;</span></div>
+        <div class="upload-label">Upload File</div>
+        <div class="hint" style="font-weight:600;color:var(--accent);font-size:13px;">Student Data</div>
+      </div>
+      <div style="text-align:center;">
+        <div class="dropzone" id="dropzoneAttendance"><span class="arrow">&#8595;</span></div>
+        <div class="upload-label">Upload File</div>
+        <div class="hint" style="font-weight:600;color:var(--accent);font-size:13px;">Attendance</div>
+      </div>
+    </div>
     <input type="file" id="fileInput" accept=".xlsx,.xls,.csv">
+    <input type="file" id="fileInputAttendance" accept=".xlsx,.xls,.csv">
   `;
 }
 
@@ -382,7 +419,7 @@ function renderOnboarding(){
 function renderChoice(){
   return `
     <div class="result-label">Result:</div>
-    <label class="radio-row"><input type="radio" name="m" ${state.modeChoice==='permanent'?'checked':''} onchange="selectPermanent()"><span>Permanent Format ( Student Data + Contact CSV )</span></label>
+    <label class="radio-row"><input type="radio" name="m" ${state.modeChoice==='permanent'?'checked':''} onchange="selectPermanent()"><span>${state.context==='attendance' ? 'Permanent Format ( Attendance )' : 'Permanent Format ( Student Data + Contact CSV )'}</span></label>
     <label class="radio-row"><input type="radio" name="m" ${state.modeChoice==='edit'?'checked':''} onchange="selectEdit()"><span>Edit Column</span></label>
     <button class="btn btn-gold" ${state.modeChoice==='edit'?'':'disabled'} onclick="proceedChoice()">Continue</button>
   `;
@@ -460,13 +497,6 @@ function renderDownload(){
 }
 
 async function init(){
-  const loaded = await loadFmt();
-  if(loaded && loaded.length){
-    state.permanentFormat = loaded;
-  }else{
-    state.permanentFormat = DEFAULT_FORMAT.map(name => ({id:uid(), name}));
-    await saveFmt(state.permanentFormat);
-  }
   render();
 }
 init();
