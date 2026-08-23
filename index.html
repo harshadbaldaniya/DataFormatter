@@ -257,7 +257,7 @@ function selectPermanent(){
   buildOutput();
   state.submitted = true;
   downloadFile();
-  setTimeout(()=>downloadWhatsapp(true), 500);
+  if(state.context==='student') setTimeout(()=>downloadWhatsapp(true), 500);
   state.step = 4;
   render();
 }
@@ -353,7 +353,7 @@ function submitCols(){
   if(!state.currentFormat.length){ alert('No columns.'); return; }
   buildOutput(); state.submitted=true;
   downloadFile();
-  setTimeout(()=>downloadWhatsapp(true), 500);
+  if(state.context==='student') setTimeout(()=>downloadWhatsapp(true), 500);
   state.step=4; render();
 }
 
