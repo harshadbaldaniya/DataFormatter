@@ -42,16 +42,16 @@
   /* column list */
   .col-heading{font-size:14px;color:var(--muted);margin:26px 0 12px;}
   .col-row{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
-  .col-row .name{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
-    padding:9px 12px;font-size:13.5px;font-family:var(--mono);}
+  .col-row .name{flex:1;min-width:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+    padding:9px 12px;font-size:13.5px;font-family:var(--font);}
   .count-row{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
   .count-label{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
     padding:9px 12px;font-size:13.5px;font-family:var(--font);}
   .count-value{flex:0 0 60px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
     padding:9px 12px;font-size:13.5px;font-family:var(--font);text-align:center;}
   .col-row input.name{width:100%;color:var(--text);}
-  .col-row select.src{width:150px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
-    padding:9px 8px;font-size:12px;color:var(--muted);font-family:var(--mono);}
+  .col-row select.src{width:auto;min-width:0;flex:1;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+    padding:9px 8px;font-size:12px;color:var(--muted);font-family:var(--font);}
   .col-row .src-empty{width:150px;flex-shrink:0;}
   .icon-btn{width:30px;height:30px;flex-shrink:0;border:1px solid var(--border);border-radius:var(--radius);
     background:var(--surface);color:var(--muted);cursor:pointer;font-size:14px;font-family:var(--mono);}
@@ -61,7 +61,7 @@
 
   .add-row{display:flex;gap:8px;margin:14px 0 0;}
   .add-row input{flex:1;background:var(--surface);border:1px dashed var(--border);border-radius:var(--radius);
-    padding:9px 12px;font-size:13px;color:var(--text);font-family:var(--mono);}
+    padding:9px 12px;font-size:13px;color:var(--text);font-family:var(--font);}
 
   /* buttons */
   .btn{width:100%;padding:12px;border-radius:var(--radius);border:1px solid var(--border);background:var(--surface);
@@ -76,6 +76,14 @@
   .link-btn:hover{color:var(--muted);}
 
   .hint{font-size:11.5px;color:var(--faint);text-align:center;margin-top:10px;}
+
+  @keyframes rowBounce{
+    0%{transform:scale(1);}
+    30%{transform:scale(1.035) translateY(-2px);}
+    60%{transform:scale(0.98);}
+    100%{transform:scale(1);}
+  }
+  .col-row.bounce{animation:rowBounce 0.35s ease;}
 
   @media (max-width:480px){
     .col-row{flex-wrap:wrap;}
@@ -236,6 +244,54 @@ function colMove(id,dir){
   [state.currentFormat[i],state.currentFormat[j]]=[state.currentFormat[j],state.currentFormat[i]]; render();
 }
 function colDel(id){ state.currentFormat = state.currentFormat.filter(c=>c.id!==id); render(); }
+
+let dragState = {arr:null, index:null};
+let justMoved = new Set();
+const _dragGhost = new Image();
+_dragGhost.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBTAA7';
+function dragStart(e, arrKey, i){
+  dragState = {arr:arrKey, index:i};
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', String(i));
+  e.dataTransfer.setDragImage(_dragGhost, 0, 0);
+}
+function captureRects(){
+  const map = {};
+  document.querySelectorAll('.col-row[data-id]').forEach(el=>{ map[el.dataset.id] = el.getBoundingClientRect().top; });
+  return map;
+}
+function playFlip(oldRects){
+  requestAnimationFrame(()=>{
+    document.querySelectorAll('.col-row[data-id]').forEach(el=>{
+      const oldTop = oldRects[el.dataset.id];
+      if(oldTop===undefined) return;
+      const delta = oldTop - el.getBoundingClientRect().top;
+      if(delta){
+        el.style.transition = 'none';
+        el.style.transform = `translateY(${delta}px)`;
+        requestAnimationFrame(()=>{
+          el.style.transition = 'transform 0.22s ease';
+          el.style.transform = '';
+        });
+      }
+    });
+  });
+}
+function dragOverRow(e, arrKey, i){
+  e.preventDefault();
+  if(dragState.arr!==arrKey || dragState.index===null || dragState.index===i) return;
+  const arr = arrKey==='draft' ? state.draft : state.currentFormat;
+  const movedItem = arr[dragState.index];
+  const oldRects = captureRects();
+  const item = arr.splice(dragState.index,1)[0];
+  arr.splice(i,0,item);
+  dragState.index = i;
+  justMoved = new Set([movedItem.id]);
+  render();
+  playFlip(oldRects);
+  setTimeout(()=>{ justMoved = new Set(); }, 350);
+}
+function dragEnd(){ dragState = {arr:null, index:null}; }
 function colRename(id,val){ const c=state.currentFormat.find(c=>c.id===id); if(c) c.name=val; }
 function colSetSource(id,val){ const c=state.currentFormat.find(c=>c.id===id); if(c) c.source=val||null; render(); }
 function addCol(){
@@ -329,15 +385,14 @@ function renderOnboarding(){
     <span class="back" onclick="state.step=1; render();">&larr; Back</span>
     <div class="result-label">set up your column format (one time)</div>
     ${state.draft.map((c,i)=>`
-      <div class="col-row">
+      <div class="col-row${justMoved.has(c.id)?' bounce':''}" data-id="${c.id}" ondragover="dragOverRow(event,'draft',${i})">
         <div class="name">${esc(c.name)}</div>
         ${hasFile ? `
         <select class="src">
           <option value="">(no match)</option>
           ${state.headers.map(h=>`<option value="${esc(h)}" ${autoMatch(c.name,state.headers)===h?'selected':''}>${esc(h)}</option>`).join('')}
         </select>` : ''}
-        <button class="icon-btn" ${i===0?'disabled':''} onclick="draftMove('${c.id}',-1)">&uarr;</button>
-        <button class="icon-btn" ${i===state.draft.length-1?'disabled':''} onclick="draftMove('${c.id}',1)">&darr;</button>
+        <button class="icon-btn" draggable="true" ondragstart="dragStart(event,'draft',${i})" ondragend="dragEnd()">=</button>
         <button class="icon-btn x" onclick="draftDel('${c.id}')">&times;</button>
       </div>`).join('')}
     <div class="add-row">
@@ -361,9 +416,9 @@ function renderColumns(){
   const locked = state.mode==='permanent';
   return `
     <span class="back" onclick="state.step=2; render();">&larr; Back</span>
-    <div class="col-heading">update column:</div>
+    <div class="col-heading">Update Column:</div>
     ${state.currentFormat.map((c,i)=>`
-      <div class="col-row">
+      <div class="col-row${justMoved.has(c.id)?' bounce':''}" data-id="${c.id}" ${locked?'':`ondragover="dragOverRow(event,'current',${i})"`}>
         ${locked
           ? `<div class="name">${esc(c.name)}</div>`
           : `<input class="name" value="${esc(c.name)}" onchange="colRename('${c.id}', this.value)">`}
@@ -372,16 +427,15 @@ function renderColumns(){
           ${state.headers.map(h=>`<option value="${esc(h)}" ${c.source===h?'selected':''}>${esc(h)}</option>`).join('')}
         </select>
         ${locked ? '' : `
-        <button class="icon-btn" ${i===0?'disabled':''} onclick="colMove('${c.id}',-1)">&uarr;</button>
-        <button class="icon-btn" ${i===state.currentFormat.length-1?'disabled':''} onclick="colMove('${c.id}',1)">&darr;</button>
+        <button class="icon-btn" draggable="true" ondragstart="dragStart(event,'current',${i})" ondragend="dragEnd()">=</button>
         <button class="icon-btn x" onclick="colDel('${c.id}')">&times;</button>`}
       </div>`).join('')}
     ${locked ? '' : `
     <div class="add-row">
-      <input id="newColName" placeholder="add column name" onkeydown="if(event.key==='Enter') addCol();">
+      <input id="newColName" placeholder="Add Column Name" onkeydown="if(event.key==='Enter') addCol();">
       <button class="icon-btn" onclick="addCol()">+</button>
     </div>`}
-    <button class="btn btn-gold" onclick="submitCols()">submit</button>
+    <button class="btn btn-gold" onclick="submitCols()">Submit</button>
   `;
 }
 
