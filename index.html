@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Student Data Formatter</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
 <style>
   :root{
     --bg:#0b1120; --surface:#111a2e; --border:#22304a; --text:#e6ebf5;
@@ -97,7 +98,7 @@
 <div id="app"></div>
 <script>
 const state = {
-  step: 1, fileName:null, headers:[], rows:[], context:'student', companyName:'',
+  step: 1, fileName:null, headers:[], rows:[], context:'student', companyName:'', attendanceDate:'',
   permanentFormat: null, mode:null, modeChoice:null,
   currentFormat: [], outputHeaders:[], outputRows:[], submitted:false,
   onboarding:false, draft:[],
@@ -113,14 +114,16 @@ const DEFAULT_FORMAT = [
 
 const ATTENDANCE_DEFAULT_FORMAT = [
   {name:'Sr. No.', type:'serial'},
-  {name:'Name', type:'concat', keywords:['first','middle','last']},
   {name:'Enrollment No.', type:'normal'},
+  {name:'Name', type:'concat', keywords:['first','middle','last']},
   {name:'Department', type:'normal'},
+  {name:'Mobile No.', type:'normal'},
+  {name:'Job Profile', type:'normal'},
   {name:'Signature', type:'blank'},
   {name:'Remark', type:'blank'}
 ];
 
-function formatKey(ctx){ return ctx==='attendance' ? 'lj_format_attendance_v2' : 'lj_format_v2'; }
+function formatKey(ctx){ return ctx==='attendance' ? 'lj_format_attendance_v3' : 'lj_format_v2'; }
 async function loadFmt(ctx){
   const key = formatKey(ctx);
   if(window.storage){
@@ -177,7 +180,7 @@ function autoMatch(name, headers){
 function esc(s){ return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
 
 function resetAll(){
-  state.step=1; state.fileName=null; state.headers=[]; state.rows=[]; state.context='student'; state.companyName='';
+  state.step=1; state.fileName=null; state.headers=[]; state.rows=[]; state.context='student'; state.companyName=''; state.attendanceDate='';
   state.mode=null; state.modeChoice=null; state.currentFormat=[]; state.outputHeaders=[];
   state.outputRows=[]; state.submitted=false; state.onboarding=false; render();
 }
@@ -360,30 +363,89 @@ function submitCols(){
 }
 
 /* downloads */
-function downloadFile(){
+function formatDateDMY(iso){
+  if(!iso) return '';
+  const [y,m,d] = iso.split('-');
+  if(!y||!m||!d) return iso;
+  return `${d}-${m}-${y}`;
+}
+
+async function downloadFile(){
   if(!state.outputRows.length) return;
   const base = (state.fileName||'student-data').replace(/\.[^.]+$/,'');
-  let ws;
   if(state.context==='attendance'){
-    const companyLine = `${(state.companyName||'').trim() || 'Company Name'} Attendance Sheet`;
-    const colCount = state.outputHeaders.length;
-    const aoa = [
-      ['IIPC 2027'],
-      [companyLine],
-      state.outputHeaders,
-      ...state.outputRows.map(r=>state.outputHeaders.map(h=>r[h]))
-    ];
-    ws = XLSX.utils.aoa_to_sheet(aoa);
-    ws['!merges'] = [
-      { s:{r:0,c:0}, e:{r:0,c:Math.max(colCount-1,0)} },
-      { s:{r:1,c:0}, e:{r:1,c:Math.max(colCount-1,0)} }
-    ];
-  }else{
-    ws = XLSX.utils.json_to_sheet(state.outputRows, {header: state.outputHeaders});
+    await downloadAttendanceXlsx(base);
+    return;
   }
+  const ws = XLSX.utils.json_to_sheet(state.outputRows, {header: state.outputHeaders});
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Student Data');
   XLSX.writeFile(wb, base + '-formatted.xlsx');
+}
+
+async function downloadAttendanceXlsx(base){
+  const headers = state.outputHeaders;
+  const colCount = headers.length;
+  const sigRemarkIdx = headers.reduce((arr,h,i)=>{ const n=norm(h); if(n==='signature'||n==='remark') arr.push(i); return arr; }, []);
+  const otherIdx = headers.map((_,i)=>i).filter(i=>!sigRemarkIdx.includes(i));
+  const GREY = 'FFBFBFBF', GREEN = 'FF92D050';
+
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('Attendance');
+
+  function styleCell(r,c,value,fill){
+    const cell = ws.getCell(r,c);
+    cell.value = value;
+    cell.alignment = {horizontal:'center', vertical:'middle'};
+    cell.font = {bold:true};
+    if(fill) cell.fill = {type:'pattern', pattern:'solid', fgColor:{argb:fill}};
+    return cell;
+  }
+
+  ws.mergeCells(1,1,1,Math.max(colCount,1));
+  styleCell(1,1,'IIPC 2027',GREY);
+
+  ws.mergeCells(2,1,2,Math.max(colCount,1));
+  styleCell(2,1, `${(state.companyName||'').trim() || 'Company Name'} Attendance Sheet`, GREY);
+
+  otherIdx.forEach(i=>{
+    const col=i+1;
+    ws.mergeCells(3,col,4,col);
+    styleCell(3,col, headers[i], GREY);
+  });
+
+  if(sigRemarkIdx.length){
+    const c1 = sigRemarkIdx[0]+1, c2 = sigRemarkIdx[sigRemarkIdx.length-1]+1;
+    if(c2>c1) ws.mergeCells(3,c1,3,c2);
+    styleCell(3,c1, formatDateDMY(state.attendanceDate), GREY);
+    sigRemarkIdx.forEach(i=>{ styleCell(4,i+1, headers[i], GREEN); });
+  }
+
+  state.outputRows.forEach((r,ri)=>{
+    headers.forEach((h,ci)=>{
+      const cell = ws.getCell(5+ri, ci+1);
+      cell.value = r[h];
+      cell.alignment = {horizontal:'center', vertical:'middle'};
+    });
+  });
+
+  headers.forEach((h,i)=>{ ws.getColumn(i+1).width = Math.max(14, h.length+4); });
+
+  const thin = {style:'thin', color:{argb:'FF000000'}};
+  const totalRows = 4 + state.outputRows.length;
+  for(let r=1;r<=totalRows;r++){
+    for(let c=1;c<=Math.max(colCount,1);c++){
+      ws.getCell(r,c).border = {top:thin, left:thin, bottom:thin, right:thin};
+    }
+  }
+
+  const buf = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buf], {type:'application/octet-stream'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = base + '-attendance.xlsx';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 function csvEsc(v){ v=String(v??''); return /[",\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v; }
 function downloadCSV(filename, headers, rows2d){
@@ -487,6 +549,9 @@ function renderChoice(){
     <div class="result-label">Company Name:</div>
     <input id="companyNameInput" placeholder="Enter company name" value="${esc(state.companyName||'')}"
       oninput="state.companyName=this.value" style="width:100%;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:9px 12px;font-size:13.5px;color:var(--text);font-family:var(--font);margin-bottom:18px;">
+    <div class="result-label">Date:</div>
+    <input type="date" id="attendanceDateInput" value="${esc(state.attendanceDate||'')}"
+      oninput="state.attendanceDate=this.value" style="width:100%;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:9px 12px;font-size:13.5px;color:var(--text);font-family:var(--font);margin-bottom:18px;">
     ` : ''}
     <div class="result-label">Result:</div>
     <label class="radio-row"><input type="radio" name="m" ${state.modeChoice==='permanent'?'checked':''} onchange="selectPermanent()"><span>${state.context==='attendance' ? 'Permanent Format ( Attendance )' : 'Permanent Format ( Student Data + Contact CSV )'}</span></label>
