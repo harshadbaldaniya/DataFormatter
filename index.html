@@ -97,7 +97,7 @@
 <div id="app"></div>
 <script>
 const state = {
-  step: 1, fileName:null, headers:[], rows:[], context:'student',
+  step: 1, fileName:null, headers:[], rows:[], context:'student', companyName:'',
   permanentFormat: null, mode:null, modeChoice:null,
   currentFormat: [], outputHeaders:[], outputRows:[], submitted:false,
   onboarding:false, draft:[],
@@ -177,7 +177,7 @@ function autoMatch(name, headers){
 function esc(s){ return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
 
 function resetAll(){
-  state.step=1; state.fileName=null; state.headers=[]; state.rows=[]; state.context='student';
+  state.step=1; state.fileName=null; state.headers=[]; state.rows=[]; state.context='student'; state.companyName='';
   state.mode=null; state.modeChoice=null; state.currentFormat=[]; state.outputHeaders=[];
   state.outputRows=[]; state.submitted=false; state.onboarding=false; render();
 }
@@ -193,9 +193,11 @@ function handleFile(file, context){
         row.map(cell => typeof cell === 'number' ? (Number.isInteger(cell) ? cell.toString() : String(cell)) : cell)
       );
       if(!aoa.length){ alert('File is empty.'); return; }
-      const headers = aoa[0].map(h=>String(h).trim()).filter(Boolean);
+      const rawHeaders = aoa[0].map(h=>String(h).trim());
+      const headers = []; const headerIdx = [];
+      rawHeaders.forEach((h,i)=>{ if(h){ headers.push(h); headerIdx.push(i); } });
       const rows = aoa.slice(1).filter(r=>r.some(c=>String(c).trim()!=='')).map(r=>{
-        const o={}; headers.forEach((h,i)=>o[h]=r[i]!==undefined?String(r[i]):''); return o;
+        const o={}; headers.forEach((h,hi)=>{ const i=headerIdx[hi]; o[h] = r[i]!==undefined ? String(r[i]) : ''; }); return o;
       });
       if(!headers.length || !rows.length){ alert('Could not find header + data rows.'); return; }
       state.fileName=file.name; state.headers=headers; state.rows=rows;
@@ -361,7 +363,24 @@ function submitCols(){
 function downloadFile(){
   if(!state.outputRows.length) return;
   const base = (state.fileName||'student-data').replace(/\.[^.]+$/,'');
-  const ws = XLSX.utils.json_to_sheet(state.outputRows, {header: state.outputHeaders});
+  let ws;
+  if(state.context==='attendance'){
+    const companyLine = `${(state.companyName||'').trim() || 'Company Name'} Attendance Sheet`;
+    const colCount = state.outputHeaders.length;
+    const aoa = [
+      ['IIPC 2027'],
+      [companyLine],
+      state.outputHeaders,
+      ...state.outputRows.map(r=>state.outputHeaders.map(h=>r[h]))
+    ];
+    ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!merges'] = [
+      { s:{r:0,c:0}, e:{r:0,c:Math.max(colCount-1,0)} },
+      { s:{r:1,c:0}, e:{r:1,c:Math.max(colCount-1,0)} }
+    ];
+  }else{
+    ws = XLSX.utils.json_to_sheet(state.outputRows, {header: state.outputHeaders});
+  }
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Student Data');
   XLSX.writeFile(wb, base + '-formatted.xlsx');
@@ -464,6 +483,11 @@ function renderOnboarding(){
 
 function renderChoice(){
   return `
+    ${state.context==='attendance' ? `
+    <div class="result-label">Company Name:</div>
+    <input id="companyNameInput" placeholder="Enter company name" value="${esc(state.companyName||'')}"
+      oninput="state.companyName=this.value" style="width:100%;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:9px 12px;font-size:13.5px;color:var(--text);font-family:var(--font);margin-bottom:18px;">
+    ` : ''}
     <div class="result-label">Result:</div>
     <label class="radio-row"><input type="radio" name="m" ${state.modeChoice==='permanent'?'checked':''} onchange="selectPermanent()"><span>${state.context==='attendance' ? 'Permanent Format ( Attendance )' : 'Permanent Format ( Student Data + Contact CSV )'}</span></label>
     <label class="radio-row"><input type="radio" name="m" ${state.modeChoice==='edit'?'checked':''} onchange="selectEdit()"><span>Edit Column</span></label>
