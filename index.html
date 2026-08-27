@@ -527,7 +527,7 @@ function render(){
   else if(state.step===4) body = renderDownload();
 
   app.innerHTML = `
-    <h1>${state.fileName ? (state.context==='attendance' ? 'Attendance' : 'Student Data + Contact CSV') : 'Student Data Formatter'}</h1>
+    <h1>${state.fileName ? (state.context==='attendance' ? 'Attendance' : 'Student Data + Contact CSV') : 'Data Formatter'}</h1>
     ${state.fileName && state.step!==1 ? `<div class="file-chip"><span>${esc(state.fileName)} · ${state.rows.length} rows</span><button onclick="resetAll()">Remove</button></div>` : ''}
     ${body}
   `;
