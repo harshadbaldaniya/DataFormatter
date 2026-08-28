@@ -500,6 +500,16 @@ function submitCols(){
 }
 
 /* downloads */
+function autoFitColumns(ws, headers, rows){
+  headers.forEach((h,i)=>{
+    let maxLen = String(h||'').length;
+    rows.forEach(r=>{
+      const len = String(r[h] ?? '').length;
+      if(len > maxLen) maxLen = len;
+    });
+    ws.getColumn(i+1).width = Math.max(maxLen + 3, 10);
+  });
+}
 function formatDateDMY(iso){
   if(!iso) return '';
   const [y,m,d] = iso.split('-');
@@ -550,7 +560,7 @@ async function downloadStudentXlsx(base){
     });
   });
 
-  headers.forEach((h,i)=>{ ws.getColumn(i+1).width = Math.max(14, h.length+4); });
+  autoFitColumns(ws, headers, state.outputRows);
 
   const thin = {style:'thin', color:{argb:'FF000000'}};
   const totalRows = 3 + state.outputRows.length;
@@ -615,7 +625,7 @@ async function downloadAttendanceXlsx(base){
     });
   });
 
-  headers.forEach((h,i)=>{ ws.getColumn(i+1).width = Math.max(14, h.length+4); });
+  autoFitColumns(ws, headers, state.outputRows);
 
   const thin = {style:'thin', color:{argb:'FF000000'}};
   const totalRows = 4 + state.outputRows.length;
