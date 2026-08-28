@@ -102,6 +102,7 @@ const state = {
   permanentFormat: null, mode:null, modeChoice:null,
   currentFormat: [], outputHeaders:[], outputRows:[], submitted:false,
   onboarding:false, draft:[],
+  filterApplied:false, masterFileName:null, masterHeaders:[], masterRows:[], filterSummary:null,
 };
 
 const DEFAULT_FORMAT = [
@@ -182,7 +183,120 @@ function esc(s){ return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&
 function resetAll(){
   state.step=1; state.fileName=null; state.headers=[]; state.rows=[]; state.context='student'; state.companyName=''; state.attendanceDate='';
   state.mode=null; state.modeChoice=null; state.currentFormat=[]; state.outputHeaders=[];
-  state.outputRows=[]; state.submitted=false; state.onboarding=false; render();
+  state.outputRows=[]; state.submitted=false; state.onboarding=false;
+  state.filterApplied=false; state.masterFileName=null; state.masterHeaders=[]; state.masterRows=[]; state.filterSummary=null;
+  render();
+}
+
+/* ---------- Master sheet filtering (Placed/Debarred lookup) ---------- */
+function normalizeStatus(raw){
+  const v = (raw||'').toString().trim().toLowerCase();
+  if(v.includes('debarred')) return 'Debarred';
+  if(v.includes('placed')) return 'Placed';
+  return 'Eligible';
+}
+function nameTokens(name){
+  return (name||'').toLowerCase().replace(/[^a-z\s]/g,'').split(/\s+/).filter(Boolean);
+}
+function findCol(headers, keywords){
+  return headers.find(h=>{ const n=norm(h); return keywords.some(kw=>n.includes(kw)); }) || null;
+}
+function buildFullName(row, firstCol, middleCol, lastCol, nameCol){
+  if(firstCol || middleCol || lastCol){
+    return [row[firstCol], row[middleCol], row[lastCol]].filter(Boolean).join(' ');
+  }
+  return nameCol ? (row[nameCol]||'') : '';
+}
+function runMasterFilter(){
+  const mh = state.masterHeaders;
+  const enrollColM = findCol(mh, ['enrollment']);
+  const mobileColM = findCol(mh, ['mobile','mob','phone','contact']);
+  const statusColM = findCol(mh, ['status']);
+  const firstColM = findCol(mh, ['firstname']) || findCol(mh, ['first name']);
+  const middleColM = findCol(mh, ['middlename']) || findCol(mh, ['middle name']);
+  const lastColM = findCol(mh, ['lastname']) || findCol(mh, ['last name']);
+  const nameColM = (!firstColM && !lastColM) ? findCol(mh, ['name']) : null;
+
+  const byEnroll = new Map(), byMobile = new Map();
+  const nameEntries = [];
+  state.masterRows.forEach(r=>{
+    const status = statusColM ? normalizeStatus(r[statusColM]) : 'Eligible';
+    if(enrollColM && r[enrollColM]) byEnroll.set(String(r[enrollColM]).trim(), status);
+    if(mobileColM && r[mobileColM]) byMobile.set(String(r[mobileColM]).trim(), status);
+    const tokens = nameTokens(buildFullName(r, firstColM, middleColM, lastColM, nameColM));
+    if(tokens.length) nameEntries.push({tokenSet:new Set(tokens), status});
+  });
+
+  const sh = state.headers;
+  const enrollColS = findCol(sh, ['enrollment']);
+  const mobileColS = findCol(sh, ['mobile','mob','phone','contact']);
+  const firstColS = findCol(sh, ['firstname']) || findCol(sh, ['first name']);
+  const middleColS = findCol(sh, ['middlename']) || findCol(sh, ['middle name']);
+  const lastColS = findCol(sh, ['lastname']) || findCol(sh, ['last name']);
+  const nameColS = (!firstColS && !lastColS) ? findCol(sh, ['name']) : null;
+
+  const summary = {Placed:0, Debarred:0, Eligible:0, NA:0};
+  state.rows.forEach(row=>{
+    let result = null;
+    if(enrollColS && row[enrollColS]){
+      const v = String(row[enrollColS]).trim();
+      if(byEnroll.has(v)) result = {status:byEnroll.get(v), matchedBy:'Enrollment'};
+    }
+    if(!result && mobileColS && row[mobileColS]){
+      const v = String(row[mobileColS]).trim();
+      if(byMobile.has(v)) result = {status:byMobile.get(v), matchedBy:'Mobile'};
+    }
+    if(!result){
+      const studentTokens = nameTokens(buildFullName(row, firstColS, middleColS, lastColS, nameColS));
+      if(studentTokens.length){
+        const matches = nameEntries.filter(e=>{
+          const overlap = studentTokens.filter(t=>e.tokenSet.has(t));
+          return overlap.length >= Math.min(2, studentTokens.length);
+        });
+        if(matches.length===1) result = {status:matches[0].status, matchedBy:'Name'};
+        else if(matches.length>1) result = {status:'NA', matchedBy:'Name-Ambiguous'};
+      }
+    }
+    if(!result) result = {status:'NA', matchedBy:'None'};
+    row['Status'] = result.status;
+    row['Matched By'] = result.matchedBy;
+    summary[result.status] = (summary[result.status]||0) + 1;
+  });
+
+  if(!state.headers.includes('Status')) state.headers.push('Status');
+  if(!state.headers.includes('Matched By')) state.headers.push('Matched By');
+  state.filterApplied = true;
+  state.filterSummary = summary;
+}
+
+function handleMasterFile(file){
+  const reader = new FileReader();
+  reader.onload = e => {
+    try{
+      const wb = XLSX.read(new Uint8Array(e.target.result), {type:'array'});
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const aoa = XLSX.utils.sheet_to_json(sheet, {header:1, defval:'', raw:true}).map(row=>
+        row.map(cell => typeof cell === 'number' ? (Number.isInteger(cell) ? cell.toString() : String(cell)) : cell)
+      );
+      if(!aoa.length){ alert('Master sheet is empty.'); return; }
+      const rawHeaders = aoa[0].map(h=>String(h).trim());
+      const headers = []; const headerIdx = [];
+      rawHeaders.forEach((h,i)=>{ if(h){ headers.push(h); headerIdx.push(i); } });
+      const rows = aoa.slice(1).filter(r=>r.some(c=>String(c).trim()!=='')).map(r=>{
+        const o={}; headers.forEach((h,hi)=>{ const i=headerIdx[hi]; o[h] = r[i]!==undefined ? String(r[i]) : ''; }); return o;
+      });
+      if(!headers.length || !rows.length){ alert('Could not find header + data rows in master sheet.'); return; }
+      state.masterFileName = file.name;
+      state.masterHeaders = headers;
+      state.masterRows = rows;
+      runMasterFilter();
+      render();
+    }catch(err){ console.error(err); alert('Could not read master sheet.'); }
+  };
+  reader.readAsArrayBuffer(file);
+}
+function skipFilter(){
+  state.step = 2; render();
 }
 
 function handleFile(file, context){
@@ -213,16 +327,14 @@ async function proceedAfterUpload(){
   const loaded = await loadFmt(state.context);
   if(loaded && loaded.length){
     state.permanentFormat = loaded;
-    state.step = 2;
   }else if(state.context==='student'){
     state.permanentFormat = DEFAULT_FORMAT.map(c => ({id:uid(), name:c.name, type:c.type}));
     await saveFmt(state.permanentFormat);
-    state.step = 2;
   }else{
     state.permanentFormat = ATTENDANCE_DEFAULT_FORMAT.map(c => ({id:uid(), name:c.name, type:c.type, keywords:c.keywords}));
     await saveFmt(state.permanentFormat);
-    state.step = 2;
   }
+  state.step = (state.context==='student') ? 5 : 2;
   render();
 }
 
@@ -247,13 +359,18 @@ async function saveOnboarding(){
 
 /* choose permanent / edit */
 function buildCurrentFormat(){
-  return state.permanentFormat.map(c=>{
+  const cols = state.permanentFormat.map(c=>{
     if(c.type==='serial') return {id:c.id, name:c.name, type:'serial'};
     if(c.type==='blank') return {id:c.id, name:c.name, type:'blank'};
     if(c.type==='concat') return {id:c.id, name:c.name, type:'concat', keywords:c.keywords,
       partHeaders:(c.keywords||[]).map(kw=>state.headers.find(h=>norm(h).includes(kw))||null)};
     return {id:c.id, name:c.name, source: autoMatch(c.name, state.headers)};
   });
+  if(state.filterApplied && state.context==='student'){
+    cols.push({id:uid(), name:'Status', source:'Status'});
+    cols.push({id:uid(), name:'Matched By', source:'Matched By'});
+  }
+  return cols;
 }
 function selectPermanent(){
   state.modeChoice = 'permanent';
@@ -522,6 +639,7 @@ function render(){
   let body='';
   if(state.step===1) body = renderUpload();
   else if(state.step===20) body = renderOnboarding();
+  else if(state.step===5) body = renderFilter();
   else if(state.step===2) body = renderChoice();
   else if(state.step===3) body = renderColumns();
   else if(state.step===4) body = renderDownload();
@@ -546,6 +664,16 @@ function render(){
     dzA.addEventListener('dragover', e=>{ e.preventDefault(); dzA.classList.add('drag'); });
     dzA.addEventListener('dragleave', ()=>dzA.classList.remove('drag'));
     dzA.addEventListener('drop', e=>{ e.preventDefault(); dzA.classList.remove('drag'); if(e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0],'attendance'); });
+  }
+  if(state.step===5 && !state.masterFileName){
+    const dzM=document.getElementById('dropzoneMaster'), fiM=document.getElementById('fileInputMaster');
+    if(dzM && fiM){
+      dzM.addEventListener('click', ()=>fiM.click());
+      fiM.addEventListener('change', e=>{ if(e.target.files[0]) handleMasterFile(e.target.files[0]); });
+      dzM.addEventListener('dragover', e=>{ e.preventDefault(); dzM.classList.add('drag'); });
+      dzM.addEventListener('dragleave', ()=>dzM.classList.remove('drag'));
+      dzM.addEventListener('drop', e=>{ e.preventDefault(); dzM.classList.remove('drag'); if(e.dataTransfer.files[0]) handleMasterFile(e.dataTransfer.files[0]); });
+    }
   }
 }
 
@@ -589,6 +717,26 @@ function renderOnboarding(){
       <button class="icon-btn" onclick="const i=document.getElementById('newColName2'); draftAdd(i.value); i.value='';">+</button>
     </div>
     <button class="btn btn-gold" onclick="saveOnboarding()">save &amp; continue</button>
+  `;
+}
+
+function renderFilter(){
+  return `
+    <div class="result-label">Check against master sheet? (optional)</div>
+    <p class="lede" style="color:var(--faint);font-size:12.5px;margin:0 0 16px;">Matches each student by Enrollment No., then Mobile No., then Name, and marks Placed / Debarred / Eligible / NA.</p>
+    ${state.masterFileName ? `
+      <div class="file-chip"><span>${esc(state.masterFileName)} · ${state.masterRows.length} rows</span></div>
+      ${state.filterSummary ? `
+        <div class="col-heading">Result:</div>
+        ${Object.entries(state.filterSummary).map(([k,v])=>`<div class="count-row"><div class="count-label">${esc(k)}</div><div class="count-value">${v}</div></div>`).join('')}
+      ` : ''}
+      <button class="btn btn-gold" onclick="state.step=2; render();">Continue</button>
+    ` : `
+      <div class="dropzone" id="dropzoneMaster" style="margin-top:6px;"><span class="arrow">&#8595;</span></div>
+      <div class="upload-label" style="margin-bottom:20px;">Upload Master Sheet</div>
+      <input type="file" id="fileInputMaster" accept=".xlsx,.xls,.csv">
+      <button class="btn" onclick="skipFilter()">Skip</button>
+    `}
   `;
 }
 
@@ -677,6 +825,7 @@ function renderDownload(){
     ${Object.entries(dc.counts).map(([k,v])=>`
       <div class="count-row"><div class="count-label">${esc(k)}</div><div class="count-value">${v}</div></div>
     `).join('')}
+    <div class="count-row"><div class="count-label" style="background:#3b82f6;color:#ffffff;font-weight:700;">Total</div><div class="count-value" style="background:#3b82f6;color:#ffffff;font-weight:700;">${Object.values(dc.counts).reduce((a,b)=>a+b,0)}</div></div>
     ` : ''}
     ${jc ? `
     <div class="col-heading">Job Profile Wise Count:</div>
