@@ -552,7 +552,7 @@ async function downloadStudentXlsx(base){
 
   headers.forEach((h,i)=>{ ws.getColumn(i+1).width = Math.max(14, h.length+4); });
 
-  const thin = {style:'medium', color:{argb:'FF000000'}};
+  const thin = {style:'thin', color:{argb:'FF000000'}};
   const totalRows = 3 + state.outputRows.length;
   for(let r=1;r<=totalRows;r++){
     for(let c=1;c<=Math.max(colCount,1);c++){
@@ -617,7 +617,7 @@ async function downloadAttendanceXlsx(base){
 
   headers.forEach((h,i)=>{ ws.getColumn(i+1).width = Math.max(14, h.length+4); });
 
-  const thin = {style:'medium', color:{argb:'FF000000'}};
+  const thin = {style:'thin', color:{argb:'FF000000'}};
   const totalRows = 4 + state.outputRows.length;
   for(let r=1;r<=totalRows;r++){
     for(let c=1;c<=Math.max(colCount,1);c++){
