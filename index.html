@@ -448,9 +448,29 @@ function addNameConcat(){
   render();
 }
 
+function sortRowsForOutput(rows){
+  const deptCol = findCol(state.headers, ['department','degree','branch','course']);
+  const enrollCol = findCol(state.headers, ['enrollment']);
+  if(!deptCol && !enrollCol) return rows;
+  return [...rows].sort((a,b)=>{
+    if(deptCol){
+      const da = (a[deptCol]||'').toString().trim().toLowerCase();
+      const db = (b[deptCol]||'').toString().trim().toLowerCase();
+      if(da!==db) return da<db ? -1 : 1;
+    }
+    if(enrollCol){
+      const ea = (a[enrollCol]||'').toString().trim();
+      const eb = (b[enrollCol]||'').toString().trim();
+      return ea.localeCompare(eb, undefined, {numeric:true});
+    }
+    return 0;
+  });
+}
+
 function buildOutput(){
+  const rows = sortRowsForOutput(state.rows);
   state.outputHeaders = state.currentFormat.map(c=>c.name);
-  state.outputRows = state.rows.map((r,ri)=>{
+  state.outputRows = rows.map((r,ri)=>{
     const o={};
     state.currentFormat.forEach(c=>{
       if(c.type==='serial'){
