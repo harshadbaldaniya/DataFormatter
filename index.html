@@ -148,12 +148,14 @@ async function saveFmt(cols, ctx){
 
 const FIELD_ALIASES = {
   studentmobno: ['mobile','mob','contact','phone','whatsapp'],
+  mobileno: ['mobile','mob','contact','phone','whatsapp','studentmobno'],
   enrollmentno: ['enrollment','enroll'],
   firstname: ['firstname','fname'],
   middlename: ['middlename','mname'],
   lastname: ['lastname','surname'],
   emailid: ['email'],
   currentdegree: ['degree','department','branch','course'],
+  department: ['department','degree','branch','course','currentdegree'],
   sscpercentage: ['ssc','10th'],
   hscpercentage: ['hsc','12th'],
   diplomapercentage: ['diploma'],
@@ -164,7 +166,7 @@ const FIELD_ALIASES = {
 };
 
 function uid(){ return 'c'+Math.random().toString(36).slice(2,9); }
-function norm(s){ return String(s||'').trim().toLowerCase().replace(/[\s_-]+/g,''); }
+function norm(s){ return String(s||'').trim().toLowerCase().replace(/[^a-z0-9]+/g,''); }
 function autoMatch(name, headers){
   const n = norm(name);
   let m = headers.find(h=>norm(h)===n);
@@ -279,12 +281,7 @@ function handleMasterFile(file){
         row.map(cell => typeof cell === 'number' ? (Number.isInteger(cell) ? cell.toString() : String(cell)) : cell)
       );
       if(!aoa.length){ alert('Master sheet is empty.'); return; }
-      const rawHeaders = aoa[0].map(h=>String(h).trim());
-      const headers = []; const headerIdx = [];
-      rawHeaders.forEach((h,i)=>{ if(h){ headers.push(h); headerIdx.push(i); } });
-      const rows = aoa.slice(1).filter(r=>r.some(c=>String(c).trim()!=='')).map(r=>{
-        const o={}; headers.forEach((h,hi)=>{ const i=headerIdx[hi]; o[h] = r[i]!==undefined ? String(r[i]) : ''; }); return o;
-      });
+      const {headers, rows} = extractHeaderAndRows(aoa);
       if(!headers.length || !rows.length){ alert('Could not find header + data rows in master sheet.'); return; }
       state.masterFileName = file.name;
       state.masterHeaders = headers;
@@ -299,6 +296,35 @@ function skipFilter(){
   state.step = 2; render();
 }
 
+function extractHeaderAndRows(aoa){
+  let idx = 0;
+  while(idx < aoa.length){
+    const nonEmpty = aoa[idx].filter(c=>String(c).trim()!=='').length;
+    if(nonEmpty <= 1) idx++; else break;
+  }
+  if(idx >= aoa.length) return {headers:[], rows:[]};
+  let headerRow = aoa[idx].slice();
+  let dataStart = idx+1;
+  if(dataStart < aoa.length){
+    const nextRow = aoa[dataStart];
+    const nextNonEmptyIdx = [];
+    nextRow.forEach((c,i)=>{ if(String(c).trim()!=='') nextNonEmptyIdx.push(i); });
+    const headerEmptyAtThoseIdx = nextNonEmptyIdx.length>0 && nextNonEmptyIdx.every(i => String(headerRow[i]||'').trim()==='');
+    const firstColBlank = String(nextRow[0]||'').trim()==='';
+    if(headerEmptyAtThoseIdx && firstColBlank){
+      nextNonEmptyIdx.forEach(i=>{ headerRow[i] = nextRow[i]; });
+      dataStart++;
+    }
+  }
+  const rawHeaders = headerRow.map(h=>String(h).trim());
+  const headers = []; const headerIdx = [];
+  rawHeaders.forEach((h,i)=>{ if(h){ headers.push(h); headerIdx.push(i); } });
+  const rows = aoa.slice(dataStart).filter(r=>r.some(c=>String(c).trim()!=='')).map(r=>{
+    const o={}; headers.forEach((h,hi)=>{ const i=headerIdx[hi]; o[h] = r[i]!==undefined ? String(r[i]) : ''; }); return o;
+  });
+  return {headers, rows};
+}
+
 function handleFile(file, context){
   state.context = context || 'student';
   const reader = new FileReader();
@@ -310,12 +336,7 @@ function handleFile(file, context){
         row.map(cell => typeof cell === 'number' ? (Number.isInteger(cell) ? cell.toString() : String(cell)) : cell)
       );
       if(!aoa.length){ alert('File is empty.'); return; }
-      const rawHeaders = aoa[0].map(h=>String(h).trim());
-      const headers = []; const headerIdx = [];
-      rawHeaders.forEach((h,i)=>{ if(h){ headers.push(h); headerIdx.push(i); } });
-      const rows = aoa.slice(1).filter(r=>r.some(c=>String(c).trim()!=='')).map(r=>{
-        const o={}; headers.forEach((h,hi)=>{ const i=headerIdx[hi]; o[h] = r[i]!==undefined ? String(r[i]) : ''; }); return o;
-      });
+      const {headers, rows} = extractHeaderAndRows(aoa);
       if(!headers.length || !rows.length){ alert('Could not find header + data rows.'); return; }
       state.fileName=file.name; state.headers=headers; state.rows=rows;
       proceedAfterUpload();
