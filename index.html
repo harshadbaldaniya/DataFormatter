@@ -19,6 +19,7 @@
   h1{font-size:16px;font-weight:600;text-align:center;color:var(--muted);margin:0 0 34px;letter-spacing:.02em;}
   .back{font-size:12.5px;color:var(--faint);cursor:pointer;margin-bottom:16px;display:inline-block;}
   .back:hover{color:var(--muted);}
+  :focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
 
   /* upload */
   .dropzone{border:2px dashed var(--border);border-radius:16px;width:120px;height:100px;margin:0 auto 14px;
@@ -27,9 +28,9 @@
   .dropzone .arrow{font-size:26px;color:var(--muted);}
   .upload-label{text-align:center;color:var(--muted);font-size:14px;margin-bottom:26px;}
   input[type=file]{display:none;}
-  .file-chip{display:flex;align-items:center;justify-content:space-between;background:var(--surface);
+  .file-chip{display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--surface);
     border:1px solid var(--border);border-radius:var(--radius);padding:10px 14px;margin-bottom:20px;font-size:12.5px;}
-  .file-chip button{background:none;border:none;color:var(--faint);cursor:pointer;font-size:12px;}
+  .file-chip button{background:none;border:none;color:var(--faint);cursor:pointer;font-size:12px;flex-shrink:0;}
   .file-chip button:hover{color:var(--red);}
 
   /* result radios */
@@ -39,6 +40,13 @@
   .radio-row:hover{border-color:var(--accent);}
   .radio-row input{accent-color:var(--accent);width:15px;height:15px;}
   .radio-row span{font-size:14px;}
+  .radio-row.is-disabled{opacity:.4;cursor:not-allowed;}
+  .radio-row.is-disabled:hover{border-color:var(--border);}
+
+  /* text inputs */
+  .field{width:100%;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+    padding:9px 12px;font-size:13.5px;color:var(--text);font-family:var(--font);margin-bottom:18px;}
+  .field:invalid{border-color:var(--red);}
 
   /* column list */
   .col-heading{font-size:14px;color:var(--muted);margin:26px 0 12px;}
@@ -50,10 +58,10 @@
     padding:9px 12px;font-size:13.5px;font-family:var(--font);}
   .count-value{flex:0 0 60px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
     padding:9px 12px;font-size:13.5px;font-family:var(--font);text-align:center;}
+  .count-row.total .count-label, .count-row.total .count-value{background:var(--accent);color:#fff;font-weight:700;border-color:var(--accent);}
   .col-row input.name{width:100%;color:var(--text);}
   .col-row select.src{width:auto;min-width:0;flex:1;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
     padding:9px 8px;font-size:12px;color:var(--muted);font-family:var(--font);}
-  .col-row .src-empty{width:150px;flex-shrink:0;}
   .icon-btn{width:30px;height:30px;flex-shrink:0;border:1px solid var(--border);border-radius:var(--radius);
     background:var(--surface);color:var(--muted);cursor:pointer;font-size:14px;font-family:var(--mono);}
   .icon-btn:hover{color:var(--text);border-color:var(--faint);}
@@ -70,6 +78,9 @@
   .btn:hover{border-color:var(--faint);}
   .btn-gold{background:var(--accent);border-color:var(--accent);color:#ffffff;}
   .btn-gold:hover{background:#2f6fd1;}
+  .btn-ghost{background:transparent;color:var(--muted);border-style:dashed;}
+  .btn-ghost:hover{color:var(--text);border-color:var(--faint);}
+  .btn-sm{padding:9px;font-size:12.5px;font-weight:500;margin-top:10px;}
   .btn[disabled]{opacity:.35;filter:blur(.3px);cursor:not-allowed;}
   .btn[disabled]:hover{border-color:var(--border);}
   .link-btn{display:block;text-align:center;margin-top:14px;font-size:12.5px;color:var(--faint);
@@ -77,6 +88,13 @@
   .link-btn:hover{color:var(--muted);}
 
   .hint{font-size:11.5px;color:var(--faint);text-align:center;margin-top:10px;}
+  .warn{font-size:11.5px;color:var(--red);margin:-8px 0 14px;}
+
+  .sheet-row{display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--surface);
+    border:1px solid var(--border);border-radius:var(--radius);padding:11px 14px;margin-bottom:8px;
+    font-size:13.5px;cursor:pointer;color:var(--text);width:100%;text-align:left;font-family:var(--font);}
+  .sheet-row:hover{border-color:var(--accent);}
+  .sheet-row small{color:var(--faint);font-size:11.5px;}
 
   @keyframes rowBounce{
     0%{transform:scale(1);}
@@ -85,11 +103,12 @@
     100%{transform:scale(1);}
   }
   .col-row.bounce{animation:rowBounce 0.35s ease;}
+  @media (prefers-reduced-motion: reduce){ .col-row.bounce{animation:none;} }
 
   @media (max-width:480px){
     .col-row{flex-wrap:wrap;}
     .col-row .name{flex:1 1 100%;order:1;}
-    .col-row select.src, .col-row .src-empty{order:2;flex:1 1 auto;width:auto;}
+    .col-row select.src{order:2;flex:1 1 auto;width:auto;}
     .col-row .icon-btn{order:3;}
   }
 </style>
@@ -97,13 +116,27 @@
 <body>
 <div id="app"></div>
 <script>
+/* ============================================================
+   STATE
+   ============================================================ */
 const state = {
-  step: 1, fileName:null, headers:[], rows:[], context:'student', companyName:'', attendanceDate:'',
+  step: 1,
+  fileName:null, headers:[], rows:[], context:'student',
+  companyName:'', attendanceDate:'',
   permanentFormat: null, mode:null, modeChoice:null,
-  currentFormat: [], outputHeaders:[], outputRows:[], submitted:false,
-  onboarding:false, draft:[],
+  currentFormat: [],
+  outputCols: [],          // [{id, name}]  <- output is keyed by id, not name
+  outputRows: [],          // [{ <colId>: value }]
+  submitted:false,
   filterApplied:false, masterFileName:null, masterHeaders:[], masterRows:[], filterSummary:null,
+  statusKey:null, matchedKey:null,
+  sheetNames:[], activeSheet:null,
 };
+
+/* pending workbook while the user picks a sheet (kept out of state: it's big) */
+let pendingWB = null, pendingKind = null, pendingFile = null, pendingCtx = null;
+
+const FORMAT_VERSION = 4;
 
 const DEFAULT_FORMAT = [
   {name:'Sr. No.', type:'serial'},
@@ -124,84 +157,150 @@ const ATTENDANCE_DEFAULT_FORMAT = [
   {name:'Remark', type:'blank'}
 ];
 
-function formatKey(ctx){ return ctx==='attendance' ? 'lj_format_attendance_v3' : 'lj_format_v2'; }
+/* ============================================================
+   SAVED FORMAT (versioned — no more key bumping)
+   ============================================================ */
+function formatKey(ctx){ return ctx==='attendance' ? 'lj_format_attendance' : 'lj_format_student'; }
+
 async function loadFmt(ctx){
   const key = formatKey(ctx);
+  let raw = null;
   if(window.storage){
-    try{
-      const r = await window.storage.get(key);
-      if(r && r.value) return JSON.parse(r.value);
-    }catch(e){ /* no saved format yet */ }
-    return null;
+    try{ const r = await window.storage.get(key); raw = r && r.value ? r.value : null; }
+    catch(e){ raw = null; }
+  }else{
+    try{ raw = localStorage.getItem(key); }catch(e){ raw = null; }
   }
-  try{ const r=localStorage.getItem(key); return r?JSON.parse(r):null; }catch(e){ return null; }
-}
-async function saveFmt(cols, ctx){
-  const key = formatKey(ctx || state.context);
-  if(window.storage){
-    try{ await window.storage.set(key, JSON.stringify(cols)); }
-    catch(e){ console.warn('save failed', e); }
-    return;
-  }
-  try{ localStorage.setItem(key, JSON.stringify(cols)); }catch(e){}
+  if(!raw) return null;
+  let parsed;
+  try{ parsed = JSON.parse(raw); }catch(e){ return null; }
+  // old shape was a bare array with no version — treat as stale, fall back to defaults
+  if(!parsed || parsed.v !== FORMAT_VERSION || !Array.isArray(parsed.cols)) return null;
+  return parsed.cols;
 }
 
+async function saveFmt(cols, ctx){
+  const key = formatKey(ctx || state.context);
+  const payload = JSON.stringify({v:FORMAT_VERSION, cols});
+  if(window.storage){
+    try{ await window.storage.set(key, payload); }catch(e){ console.warn('save failed', e); }
+    return;
+  }
+  try{ localStorage.setItem(key, payload); }catch(e){}
+}
+
+/* ============================================================
+   HEADER MATCHING
+   ============================================================ */
 const FIELD_ALIASES = {
-  studentmobno: ['mobile','mob','contact','phone','whatsapp'],
-  mobileno: ['mobile','mob','contact','phone','whatsapp','studentmobno'],
-  enrollmentno: ['enrollment','enroll'],
-  firstname: ['firstname','fname'],
-  middlename: ['middlename','mname'],
-  lastname: ['lastname','surname'],
-  emailid: ['email'],
-  currentdegree: ['degree','department','branch','course'],
-  department: ['department','degree','branch','course','currentdegree'],
-  sscpercentage: ['ssc','10th'],
-  hscpercentage: ['hsc','12th'],
-  diplomapercentage: ['diploma'],
-  graduationpercentage: ['graduation','bachelor'],
-  currentcgpa: ['cgpa','cpi'],
-  resumelink: ['resume','cv'],
-  jobprofile: ['jobprofile','jobtitle','role','profile'],
+  studentmobno:['mobile','mob','contact','phone','whatsapp','mobileno','contactno'],
+  mobileno:['mobile','mob','contact','phone','whatsapp','studentmobno','contactno'],
+  enrollmentno:['enrollment','enroll','enrollmentnumber','erno','grno'],
+  firstname:['firstname','fname'],
+  middlename:['middlename','mname'],
+  lastname:['lastname','surname'],
+  emailid:['email','emailaddress','mailid'],
+  currentdegree:['degree','department','branch','course','dept'],
+  department:['department','degree','branch','course','dept','currentdegree'],
+  sscpercentage:['ssc','10th','sscpercent','class10'],
+  hscpercentage:['hsc','12th','hscpercent','class12'],
+  diplomapercentage:['diploma'],
+  graduationpercentage:['graduation','bachelor','ugpercentage'],
+  currentcgpa:['cgpa','cpi','currentcpi'],
+  resumelink:['resume','cv','resumeurl'],
+  jobprofile:['jobprofile','jobtitle','jobrole','position','preferredprofile','appliedfor'],
+};
+
+/* headers that must never be picked for a given field (parent numbers, LinkedIn URLs, etc.) */
+const FIELD_EXCLUDE = {
+  jobprofile:['linkedin','github','resume','cv','photo','url','link','email'],
+  resumelink:['linkedin','github','photo'],
+  emailid:['parent','father','mother','guardian'],
+  studentmobno:['parent','father','mother','guardian','alternate','emergency'],
+  mobileno:['parent','father','mother','guardian','alternate','emergency'],
 };
 
 function uid(){ return 'c'+Math.random().toString(36).slice(2,9); }
 function norm(s){ return String(s||'').trim().toLowerCase().replace(/[^a-z0-9]+/g,''); }
+function tokensOf(s){ return String(s||'').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean); }
+
 function autoMatch(name, headers){
   const n = norm(name);
-  let m = headers.find(h=>norm(h)===n);
+  if(!n) return null;
+  const ex = FIELD_EXCLUDE[n] || [];
+  // excluded headers are dropped outright — a wrong auto-match is worse than no match
+  const pool = ex.length ? headers.filter(h=>{ const hn=norm(h); return !ex.some(e=>hn.includes(e)); }) : headers;
+
+  let m = pool.find(h=>norm(h)===n);
   if(m) return m;
-  m = headers.find(h=>norm(h).includes(n)||n.includes(norm(h)));
+
+  if(n.length>=4){ m = pool.find(h=>norm(h).includes(n)); if(m) return m; }
+
+  // reverse substring, but only for headers long enough to be meaningful
+  // (stops "No." hijacking "EnrollmentNo")
+  m = pool.find(h=>{ const hn=norm(h); return hn.length>=4 && n.includes(hn); });
   if(m) return m;
+
   const aliases = FIELD_ALIASES[n];
   if(aliases){
-    m = headers.find(h=>{ const hn=norm(h); return aliases.some(a=>hn.includes(a)); });
+    m = pool.find(h=>{ const t=tokensOf(h); return aliases.some(a=>t.includes(a)); });
+    if(m) return m;
+    m = pool.find(h=>{ const hn=norm(h); return aliases.some(a=>a.length>=4 && hn.includes(a)); });
     if(m) return m;
   }
   return null;
 }
+
+function findCol(headers, keywords){
+  const kws = keywords.map(norm).filter(Boolean);
+  return headers.find(h=>{ const n=norm(h); return kws.some(kw=>n.includes(kw)); }) || null;
+}
+
 function esc(s){ return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
 
+function uniqueKey(existing, base){
+  if(!existing.includes(base)) return base;
+  let i = 2;
+  while(existing.includes(base+' ('+i+')')) i++;
+  return base+' ('+i+')';
+}
+
+/* ============================================================
+   RESET
+   ============================================================ */
 function resetAll(){
-  state.step=1; state.fileName=null; state.headers=[]; state.rows=[]; state.context='student'; state.companyName=''; state.attendanceDate='';
-  state.mode=null; state.modeChoice=null; state.currentFormat=[]; state.outputHeaders=[];
-  state.outputRows=[]; state.submitted=false; state.onboarding=false;
-  state.filterApplied=false; state.masterFileName=null; state.masterHeaders=[]; state.masterRows=[]; state.filterSummary=null;
+  state.step=1; state.fileName=null; state.headers=[]; state.rows=[];
+  state.context='student'; state.companyName=''; state.attendanceDate='';
+  state.mode=null; state.modeChoice=null; state.currentFormat=[];
+  state.outputCols=[]; state.outputRows=[]; state.submitted=false;
+  state.filterApplied=false; state.masterFileName=null; state.masterHeaders=[]; state.masterRows=[];
+  state.filterSummary=null; state.statusKey=null; state.matchedKey=null;
+  state.sheetNames=[]; state.activeSheet=null;
+  pendingWB=null; pendingKind=null; pendingFile=null; pendingCtx=null;
   render();
 }
 
-/* ---------- Master sheet filtering (Placed/Debarred lookup) ---------- */
+/* ============================================================
+   MASTER SHEET FILTER (Placed / Debarred)
+   ============================================================ */
 function normalizeStatus(raw){
   const v = (raw||'').toString().trim().toLowerCase();
-  if(v.includes('debarred')) return 'Debarred';
+  if(v.includes('debar')) return 'Debarred';
   if(v.includes('placed')) return 'Placed';
   return 'Eligible';
 }
 function nameTokens(name){
-  return (name||'').toLowerCase().replace(/[^a-z\s]/g,'').split(/\s+/).filter(Boolean);
+  return (name||'').toLowerCase().replace(/[^a-z\s]/g,' ').split(/\s+/).filter(Boolean);
 }
-function findCol(headers, keywords){
-  return headers.find(h=>{ const n=norm(h); return keywords.some(kw=>n.includes(kw)); }) || null;
+/* phone/enrollment are compared loosely — +91, spaces, apostrophes must not break a match */
+function normPhone(v){
+  const d = String(v??'').replace(/\D/g,'');
+  if(!d) return null;
+  return d.length>10 ? d.slice(-10) : d;
+}
+function normEnroll(v){
+  const s = String(v??'').trim().replace(/^['`\s]+/,'').replace(/\s+/g,'').toUpperCase();
+  return s || null;
 }
 function buildFullName(row, firstCol, middleCol, lastCol, nameCol){
   if(firstCol || middleCol || lastCol){
@@ -209,91 +308,124 @@ function buildFullName(row, firstCol, middleCol, lastCol, nameCol){
   }
   return nameCol ? (row[nameCol]||'') : '';
 }
+
 function runMasterFilter(){
   const mh = state.masterHeaders;
-  const enrollColM = findCol(mh, ['enrollment']);
+  const enrollColM = findCol(mh, ['enrollment','enroll','grno']);
   const mobileColM = findCol(mh, ['mobile','mob','phone','contact']);
   const statusColM = findCol(mh, ['status']);
-  const firstColM = findCol(mh, ['firstname']) || findCol(mh, ['first name']);
-  const middleColM = findCol(mh, ['middlename']) || findCol(mh, ['middle name']);
-  const lastColM = findCol(mh, ['lastname']) || findCol(mh, ['last name']);
-  const nameColM = (!firstColM && !lastColM) ? findCol(mh, ['name']) : null;
+  const firstColM  = findCol(mh, ['firstname']);
+  const middleColM = findCol(mh, ['middlename']);
+  const lastColM   = findCol(mh, ['lastname','surname']);
+  const nameColM   = (!firstColM && !lastColM) ? findCol(mh, ['name']) : null;
 
   const byEnroll = new Map(), byMobile = new Map();
   const nameEntries = [];
   state.masterRows.forEach(r=>{
     const status = statusColM ? normalizeStatus(r[statusColM]) : 'Eligible';
-    if(enrollColM && r[enrollColM]) byEnroll.set(String(r[enrollColM]).trim(), status);
-    if(mobileColM && r[mobileColM]) byMobile.set(String(r[mobileColM]).trim(), status);
+    if(enrollColM){ const k = normEnroll(r[enrollColM]); if(k) byEnroll.set(k, status); }
+    if(mobileColM){ const k = normPhone(r[mobileColM]); if(k) byMobile.set(k, status); }
     const tokens = nameTokens(buildFullName(r, firstColM, middleColM, lastColM, nameColM));
     if(tokens.length) nameEntries.push({tokenSet:new Set(tokens), status});
   });
 
   const sh = state.headers;
-  const enrollColS = findCol(sh, ['enrollment']);
+  const enrollColS = findCol(sh, ['enrollment','enroll','grno']);
   const mobileColS = findCol(sh, ['mobile','mob','phone','contact']);
-  const firstColS = findCol(sh, ['firstname']) || findCol(sh, ['first name']);
-  const middleColS = findCol(sh, ['middlename']) || findCol(sh, ['middle name']);
-  const lastColS = findCol(sh, ['lastname']) || findCol(sh, ['last name']);
-  const nameColS = (!firstColS && !lastColS) ? findCol(sh, ['name']) : null;
+  const firstColS  = findCol(sh, ['firstname']);
+  const middleColS = findCol(sh, ['middlename']);
+  const lastColS   = findCol(sh, ['lastname','surname']);
+  const nameColS   = (!firstColS && !lastColS) ? findCol(sh, ['name']) : null;
+
+  const statusKey  = uniqueKey(state.headers, 'Status');
+  const matchedKey = uniqueKey(state.headers.concat([statusKey]), 'Matched By');
+  state.statusKey = statusKey;
+  state.matchedKey = matchedKey;
 
   const summary = {Placed:0, Debarred:0, Eligible:0, NA:0};
   state.rows.forEach(row=>{
     let result = null;
-    if(enrollColS && row[enrollColS]){
-      const v = String(row[enrollColS]).trim();
-      if(byEnroll.has(v)) result = {status:byEnroll.get(v), matchedBy:'Enrollment'};
+
+    if(enrollColS){
+      const v = normEnroll(row[enrollColS]);
+      if(v && byEnroll.has(v)) result = {status:byEnroll.get(v), matchedBy:'Enrollment'};
     }
-    if(!result && mobileColS && row[mobileColS]){
-      const v = String(row[mobileColS]).trim();
-      if(byMobile.has(v)) result = {status:byMobile.get(v), matchedBy:'Mobile'};
+    if(!result && mobileColS){
+      const v = normPhone(row[mobileColS]);
+      if(v && byMobile.has(v)) result = {status:byMobile.get(v), matchedBy:'Mobile'};
     }
     if(!result){
       const studentTokens = nameTokens(buildFullName(row, firstColS, middleColS, lastColS, nameColS));
       if(studentTokens.length){
-        const matches = nameEntries.filter(e=>{
-          const overlap = studentTokens.filter(t=>e.tokenSet.has(t));
-          return overlap.length >= Math.min(2, studentTokens.length);
-        });
+        const need = Math.min(2, studentTokens.length);
+        const matches = nameEntries.filter(e=>studentTokens.filter(t=>e.tokenSet.has(t)).length >= need);
+        const distinct = new Set(matches.map(m=>m.status));
         if(matches.length===1) result = {status:matches[0].status, matchedBy:'Name'};
+        else if(matches.length>1 && distinct.size===1) result = {status:matches[0].status, matchedBy:'Name'};
         else if(matches.length>1) result = {status:'NA', matchedBy:'Name-Ambiguous'};
       }
     }
     if(!result) result = {status:'NA', matchedBy:'None'};
-    row['Status'] = result.status;
-    row['Matched By'] = result.matchedBy;
+
+    row[statusKey]  = result.status;
+    row[matchedKey] = result.matchedBy;
     summary[result.status] = (summary[result.status]||0) + 1;
   });
 
-  if(!state.headers.includes('Status')) state.headers.push('Status');
-  if(!state.headers.includes('Matched By')) state.headers.push('Matched By');
+  state.headers.push(statusKey, matchedKey);
   state.filterApplied = true;
   state.filterSummary = summary;
 }
 
-function handleMasterFile(file){
+function removeMaster(){
+  if(state.statusKey){
+    state.headers = state.headers.filter(h=>h!==state.statusKey && h!==state.matchedKey);
+    state.rows.forEach(r=>{ delete r[state.statusKey]; delete r[state.matchedKey]; });
+  }
+  state.masterFileName=null; state.masterHeaders=[]; state.masterRows=[];
+  state.filterApplied=false; state.filterSummary=null;
+  state.statusKey=null; state.matchedKey=null;
+  render();
+}
+
+/* ============================================================
+   FILE READING
+   ============================================================ */
+function pad2(n){ return n<10 ? '0'+n : ''+n; }
+function fmtDateCell(d){ return pad2(d.getDate())+'-'+pad2(d.getMonth()+1)+'-'+d.getFullYear(); }
+
+function cellToString(cell){
+  if(cell === null || cell === undefined) return '';
+  if(cell instanceof Date) return fmtDateCell(cell);
+  if(typeof cell === 'number') return Number.isInteger(cell) ? cell.toString() : String(cell);
+  return String(cell);
+}
+
+function aoaOf(wb, sheetName){
+  const sheet = wb.Sheets[sheetName];
+  if(!sheet) return [];
+  return XLSX.utils.sheet_to_json(sheet, {header:1, defval:'', raw:true})
+    .map(row => row.map(cellToString));
+}
+
+function readWorkbook(file, cb){
   const reader = new FileReader();
   reader.onload = e => {
     try{
-      const wb = XLSX.read(new Uint8Array(e.target.result), {type:'array'});
-      const sheet = wb.Sheets[wb.SheetNames[0]];
-      const aoa = XLSX.utils.sheet_to_json(sheet, {header:1, defval:'', raw:true}).map(row=>
-        row.map(cell => typeof cell === 'number' ? (Number.isInteger(cell) ? cell.toString() : String(cell)) : cell)
-      );
-      if(!aoa.length){ alert('Master sheet is empty.'); return; }
-      const {headers, rows} = extractHeaderAndRows(aoa);
-      if(!headers.length || !rows.length){ alert('Could not find header + data rows in master sheet.'); return; }
-      state.masterFileName = file.name;
-      state.masterHeaders = headers;
-      state.masterRows = rows;
-      runMasterFilter();
-      render();
-    }catch(err){ console.error(err); alert('Could not read master sheet.'); }
+      // cellDates keeps real dates as Date objects instead of 45632.45
+      const wb = XLSX.read(new Uint8Array(e.target.result), {type:'array', cellDates:true});
+      cb(wb);
+    }catch(err){ console.error(err); alert('Could not read this file. Make sure it is a valid .xlsx, .xls or .csv.'); }
   };
+  reader.onerror = () => alert('Could not read this file.');
   reader.readAsArrayBuffer(file);
 }
-function skipFilter(){
-  state.step = 2; render();
+
+function nonEmptySheets(wb){
+  return wb.SheetNames.filter(n=>{
+    const a = aoaOf(wb, n);
+    return a.some(r=>r.some(c=>String(c).trim()!==''));
+  });
 }
 
 function extractHeaderAndRows(aoa){
@@ -303,8 +435,11 @@ function extractHeaderAndRows(aoa){
     if(nonEmpty <= 1) idx++; else break;
   }
   if(idx >= aoa.length) return {headers:[], rows:[]};
+
   let headerRow = aoa[idx].slice();
   let dataStart = idx+1;
+
+  // second header line (Signature / Remark sitting one row below the main header)
   if(dataStart < aoa.length){
     const nextRow = aoa[dataStart];
     const nextNonEmptyIdx = [];
@@ -316,100 +451,166 @@ function extractHeaderAndRows(aoa){
       dataStart++;
     }
   }
+
   const rawHeaders = headerRow.map(h=>String(h).trim());
-  const headers = []; const headerIdx = [];
-  rawHeaders.forEach((h,i)=>{ if(h){ headers.push(h); headerIdx.push(i); } });
-  const rows = aoa.slice(dataStart).filter(r=>r.some(c=>String(c).trim()!=='')).map(r=>{
-    const o={}; headers.forEach((h,hi)=>{ const i=headerIdx[hi]; o[h] = r[i]!==undefined ? String(r[i]) : ''; }); return o;
+  const headers = [], headerIdx = [], seen = {};
+  rawHeaders.forEach((h,i)=>{
+    if(!h) return;
+    let name = h;
+    if(seen[h]){ seen[h]++; name = h+' ('+seen[h]+')'; }   // duplicate source headers no longer overwrite
+    else seen[h] = 1;
+    headers.push(name); headerIdx.push(i);
   });
+
+  const rows = aoa.slice(dataStart)
+    .filter(r=>r.some(c=>String(c).trim()!==''))
+    .map(r=>{
+      const o={};
+      headers.forEach((h,hi)=>{ const i=headerIdx[hi]; o[h] = r[i]!==undefined ? String(r[i]) : ''; });
+      return o;
+    });
+
   return {headers, rows};
 }
 
 function handleFile(file, context){
-  state.context = context || 'student';
-  const reader = new FileReader();
-  reader.onload = e => {
-    try{
-      const wb = XLSX.read(new Uint8Array(e.target.result), {type:'array'});
-      const sheet = wb.Sheets[wb.SheetNames[0]];
-      const aoa = XLSX.utils.sheet_to_json(sheet, {header:1, defval:'', raw:true}).map(row=>
-        row.map(cell => typeof cell === 'number' ? (Number.isInteger(cell) ? cell.toString() : String(cell)) : cell)
-      );
-      if(!aoa.length){ alert('File is empty.'); return; }
-      const {headers, rows} = extractHeaderAndRows(aoa);
-      if(!headers.length || !rows.length){ alert('Could not find header + data rows.'); return; }
-      state.fileName=file.name; state.headers=headers; state.rows=rows;
-      proceedAfterUpload();
-    }catch(err){ console.error(err); alert('Could not read this file.'); }
-  };
-  reader.readAsArrayBuffer(file);
+  readWorkbook(file, wb=>{
+    const sheets = nonEmptySheets(wb);
+    if(sheets.length > 1){
+      pendingWB=wb; pendingKind='main'; pendingFile=file; pendingCtx=context;
+      state.sheetNames = sheets.map(n=>({name:n, rows:Math.max(aoaOf(wb,n).length-1,0)}));
+      state.step = 6; render(); return;
+    }
+    loadMainSheet(file, wb, sheets[0] || wb.SheetNames[0], context);
+  });
 }
+
+function loadMainSheet(file, wb, sheetName, context){
+  const aoa = aoaOf(wb, sheetName);
+  if(!aoa.length){ alert('That sheet is empty. Pick another sheet or another file.'); return; }
+  const {headers, rows} = extractHeaderAndRows(aoa);
+  if(!headers.length || !rows.length){
+    alert('No header row and data rows found in "'+sheetName+'". Check that the first filled row is the header.');
+    return;
+  }
+  state.context = context || 'student';
+  state.fileName = file.name;
+  state.activeSheet = sheetName;
+  state.headers = headers;
+  state.rows = rows;
+  pendingWB=null; pendingKind=null; pendingFile=null; pendingCtx=null;
+  proceedAfterUpload();
+}
+
+function handleMasterFile(file){
+  readWorkbook(file, wb=>{
+    const sheets = nonEmptySheets(wb);
+    if(sheets.length > 1){
+      pendingWB=wb; pendingKind='master'; pendingFile=file;
+      state.sheetNames = sheets.map(n=>({name:n, rows:Math.max(aoaOf(wb,n).length-1,0)}));
+      state.step = 6; render(); return;
+    }
+    loadMasterSheet(file, wb, sheets[0] || wb.SheetNames[0]);
+  });
+}
+
+function loadMasterSheet(file, wb, sheetName){
+  const aoa = aoaOf(wb, sheetName);
+  if(!aoa.length){ alert('That sheet is empty. Pick another sheet or another file.'); return; }
+  const {headers, rows} = extractHeaderAndRows(aoa);
+  if(!headers.length || !rows.length){ alert('No header row and data rows found in "'+sheetName+'".'); return; }
+  state.masterFileName = file.name;
+  state.masterHeaders = headers;
+  state.masterRows = rows;
+  pendingWB=null; pendingKind=null; pendingFile=null;
+  state.step = 5;
+  runMasterFilter();
+  render();
+}
+
+function pickSheet(name){
+  if(pendingKind==='master') loadMasterSheet(pendingFile, pendingWB, name);
+  else loadMainSheet(pendingFile, pendingWB, name, pendingCtx);
+}
+function pickSheetAt(i){
+  const s = state.sheetNames[i];
+  if(s) pickSheet(s.name);
+}
+function cancelSheetPick(){
+  const wasMaster = pendingKind==='master';
+  pendingWB=null; pendingKind=null; pendingFile=null; pendingCtx=null;
+  state.sheetNames=[];
+  if(wasMaster){ state.step = 5; render(); }
+  else resetAll();
+}
+
+function skipFilter(){ state.step = 2; render(); }
+
 async function proceedAfterUpload(){
   const loaded = await loadFmt(state.context);
   if(loaded && loaded.length){
     state.permanentFormat = loaded;
   }else if(state.context==='student'){
-    state.permanentFormat = DEFAULT_FORMAT.map(c => ({id:uid(), name:c.name, type:c.type}));
-    await saveFmt(state.permanentFormat);
+    state.permanentFormat = DEFAULT_FORMAT.map(c => ({id:uid(), name:c.name, type:c.type||'normal'}));
+    await saveFmt(state.permanentFormat, 'student');
   }else{
     state.permanentFormat = ATTENDANCE_DEFAULT_FORMAT.map(c => ({id:uid(), name:c.name, type:c.type, keywords:c.keywords}));
-    await saveFmt(state.permanentFormat);
+    await saveFmt(state.permanentFormat, 'attendance');
   }
   state.step = (state.context==='student') ? 5 : 2;
   render();
 }
 
-/* onboarding: define permanent columns once */
-function draftAdd(name){
-  name=(name||'').trim(); if(!name) return;
-  if(state.draft.some(c=>norm(c.name)===norm(name))) return;
-  state.draft.push({id:uid(), name}); render();
-}
-function draftMove(id,dir){
-  const i=state.draft.findIndex(c=>c.id===id), j=i+dir;
-  if(j<0||j>=state.draft.length) return;
-  [state.draft[i],state.draft[j]]=[state.draft[j],state.draft[i]]; render();
-}
-function draftDel(id){ state.draft=state.draft.filter(c=>c.id!==id); render(); }
-async function saveOnboarding(){
-  if(!state.draft.length){ alert('Add at least one column.'); return; }
-  state.permanentFormat = state.draft.map(c=>({id:c.id,name:c.name}));
-  await saveFmt(state.permanentFormat, state.context);
-  state.step = 2; render();
+/* ============================================================
+   BUILD FORMAT
+   ============================================================ */
+function findPartHeader(kw){
+  // prefer a header that has both the keyword and "name" (FirstName, First Name)
+  let h = state.headers.find(x=>{ const n=norm(x); return n.includes(kw) && n.includes('name'); });
+  if(h) return h;
+  h = state.headers.find(x=>tokensOf(x).some(t=>t===kw));
+  return h || null;
 }
 
-/* choose permanent / edit */
 function buildCurrentFormat(){
   const cols = state.permanentFormat.map(c=>{
     if(c.type==='serial') return {id:c.id, name:c.name, type:'serial'};
-    if(c.type==='blank') return {id:c.id, name:c.name, type:'blank'};
-    if(c.type==='concat') return {id:c.id, name:c.name, type:'concat', keywords:c.keywords,
-      partHeaders:(c.keywords||[]).map(kw=>state.headers.find(h=>norm(h).includes(kw))||null)};
-    return {id:c.id, name:c.name, source: autoMatch(c.name, state.headers)};
+    if(c.type==='blank')  return {id:c.id, name:c.name, type:'blank'};
+    if(c.type==='concat'){
+      const partHeaders = (c.keywords||[]).map(findPartHeader);
+      // re-uploading an already-formatted sheet has one combined "Name" column
+      // and no First/Middle/Last — fall back to matching the column directly
+      const source = partHeaders.some(Boolean) ? null : autoMatch(c.name, state.headers);
+      return {id:c.id, name:c.name, type:'concat', keywords:c.keywords, partHeaders, source};
+    }
+    return {id:c.id, name:c.name, type:'normal', source: autoMatch(c.name, state.headers)};
   });
   if(state.filterApplied && state.context==='student'){
-    cols.push({id:uid(), name:'Status', source:'Status'});
-    cols.push({id:uid(), name:'Matched By', source:'Matched By'});
+    cols.push({id:uid(), name:'Status', type:'normal', source:state.statusKey});
+    cols.push({id:uid(), name:'Matched By', type:'normal', source:state.matchedKey});
   }
   return cols;
 }
-function selectPermanent(){
+
+function attendanceMetaOk(){
+  return !!(String(state.companyName||'').trim() && state.attendanceDate);
+}
+
+async function selectPermanent(){
+  if(state.context==='attendance' && !attendanceMetaOk()) return;
   state.modeChoice = 'permanent';
   state.mode = 'permanent';
   state.currentFormat = buildCurrentFormat();
   buildOutput();
   state.submitted = true;
-  downloadFile();
-  if(state.context==='student') setTimeout(()=>downloadWhatsapp(true), 500);
   state.step = 4;
   render();
+  await runExport();
 }
-function selectEdit(){
-  state.modeChoice = 'edit';
-  render();
-}
+function selectEdit(){ state.modeChoice = 'edit'; render(); }
 function proceedChoice(){
   if(state.modeChoice!=='edit') return;
+  if(state.context==='attendance' && !attendanceMetaOk()) return;
   state.mode = 'edit';
   state.currentFormat = buildCurrentFormat();
   state.submitted = false;
@@ -417,61 +618,80 @@ function proceedChoice(){
   render();
 }
 
-/* column update screen */
-function colMove(id,dir){
-  const i=state.currentFormat.findIndex(c=>c.id===id), j=i+dir;
-  if(j<0||j>=state.currentFormat.length) return;
-  [state.currentFormat[i],state.currentFormat[j]]=[state.currentFormat[j],state.currentFormat[i]]; render();
+/* live-validate the attendance company/date fields without losing input focus */
+function onAttendanceMeta(){
+  const c = document.getElementById('companyNameInput');
+  const d = document.getElementById('attendanceDateInput');
+  state.companyName = c ? c.value : '';
+  state.attendanceDate = d ? d.value : '';
+  const ok = attendanceMetaOk();
+  document.querySelectorAll('input[name="m"]').forEach(r=>{
+    r.disabled = !ok;
+    r.closest('.radio-row').classList.toggle('is-disabled', !ok);
+  });
+  const hint = document.getElementById('metaHint');
+  if(hint) hint.style.display = ok ? 'none' : 'block';
+  const cont = document.getElementById('continueBtn');
+  if(cont) cont.disabled = !(ok && state.modeChoice==='edit');
 }
-function colDel(id){ state.currentFormat = state.currentFormat.filter(c=>c.id!==id); render(); }
 
-let dragState = {arr:null, index:null};
-let justMoved = new Set();
-const _dragGhost = new Image();
-_dragGhost.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBTAA7';
-function dragStart(e, arrKey, i){
-  dragState = {arr:arrKey, index:i};
-  e.dataTransfer.effectAllowed = 'move';
-  e.dataTransfer.setData('text/plain', String(i));
-  e.dataTransfer.setDragImage(_dragGhost, 0, 0);
-}
-function dragOverRow(e, arrKey, i){
-  e.preventDefault();
-  if(dragState.arr!==arrKey || dragState.index===null || dragState.index===i) return;
-  const arr = arrKey==='draft' ? state.draft : state.currentFormat;
-  const movedItem = arr[dragState.index];
-  const item = arr.splice(dragState.index,1)[0];
-  arr.splice(i,0,item);
-  dragState.index = i;
-  justMoved = new Set([movedItem.id]);
-  render();
-  setTimeout(()=>{ justMoved = new Set(); }, 350);
-}
-function dragEnd(){ dragState = {arr:null, index:null}; }
+/* ============================================================
+   COLUMN EDITOR
+   ============================================================ */
+function colDel(id){ state.currentFormat = state.currentFormat.filter(c=>c.id!==id); render(); }
 function colRename(id,val){ const c=state.currentFormat.find(c=>c.id===id); if(c) c.name=val; }
 function colSetSource(id,val){ const c=state.currentFormat.find(c=>c.id===id); if(c) c.source=val||null; render(); }
+
 function addCol(){
   const input = document.getElementById('newColName');
   const name = (input.value||'').trim();
   if(!name) return;
-  state.currentFormat.push({id:uid(), name, source: autoMatch(name, state.headers)});
+  if(state.currentFormat.some(c=>norm(c.name)===norm(name))){
+    alert('A column called "'+name+'" is already in the list. Rename it or pick a different name.');
+    return;
+  }
+  state.currentFormat.push({id:uid(), name, type:'normal', source: autoMatch(name, state.headers)});
   input.value=''; render();
 }
+
 function addNameConcat(){
   const find = kw => state.currentFormat.find(c=>norm(c.name).includes(kw));
-  const first = find('first');
-  const middle = find('middle');
-  const last = find('last');
-  const parts = [first, middle, last].filter(Boolean).map(c=>c.id);
-  if(!parts.length){ alert('Could not find First/Middle/Last Name columns to combine.'); return; }
-  if(state.currentFormat.some(c=>norm(c.name)==='name')) { alert('A "Name" column already exists.'); return; }
-  state.currentFormat.push({id:uid(), name:'Name', concat:true, parts});
+  const parts = [find('first'), find('middle'), find('last')].filter(Boolean).map(c=>c.id);
+  if(!parts.length){ alert('No First / Middle / Last Name columns in the list to combine.'); return; }
+  if(state.currentFormat.some(c=>norm(c.name)==='name')){ alert('A "Name" column is already in the list.'); return; }
+  state.currentFormat.push({id:uid(), name:'Name', type:'concat', parts});
   render();
 }
 
+let dragState = {index:null};
+let justMoved = new Set();
+const _dragGhost = new Image();
+_dragGhost.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBTAA7';
+function dragStart(e, i){
+  dragState = {index:i};
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', String(i));
+  e.dataTransfer.setDragImage(_dragGhost, 0, 0);
+}
+function dragOverRow(e, i){
+  e.preventDefault();
+  if(dragState.index===null || dragState.index===i) return;
+  const arr = state.currentFormat;
+  const moved = arr[dragState.index];
+  arr.splice(i, 0, arr.splice(dragState.index,1)[0]);
+  dragState.index = i;
+  justMoved = new Set([moved.id]);
+  render();
+  setTimeout(()=>{ justMoved = new Set(); }, 350);
+}
+function dragEnd(){ dragState = {index:null}; }
+
+/* ============================================================
+   OUTPUT
+   ============================================================ */
 function sortRowsForOutput(rows){
   const deptCol = findCol(state.headers, ['department','degree','branch','course']);
-  const enrollCol = findCol(state.headers, ['enrollment']);
+  const enrollCol = findCol(state.headers, ['enrollment','enroll','grno']);
   if(!deptCol && !enrollCol) return rows;
   return [...rows].sort((a,b)=>{
     if(deptCol){
@@ -490,67 +710,130 @@ function sortRowsForOutput(rows){
 
 function buildOutput(){
   const rows = sortRowsForOutput(state.rows);
-  state.outputHeaders = state.currentFormat.map(c=>c.name);
+  state.outputCols = state.currentFormat.map(c=>({id:c.id, name:c.name}));
   state.outputRows = rows.map((r,ri)=>{
-    const o={};
+    const o = {};
     state.currentFormat.forEach(c=>{
       if(c.type==='serial'){
-        o[c.name] = ri+1;
+        o[c.id] = ri+1;
       }else if(c.type==='blank'){
-        o[c.name] = '';
+        o[c.id] = '';
       }else if(c.type==='concat'){
-        o[c.name] = (c.partHeaders||[]).map(h=> h ? (r[h]??'') : '').filter(Boolean).join(' ').trim();
-      }else if(c.concat){
-        o[c.name] = c.parts.map(pid=>{
-          const pc = state.currentFormat.find(x=>x.id===pid);
-          return pc && pc.source ? (r[pc.source] ?? '') : '';
-        }).filter(Boolean).join(' ').trim();
+        if(Array.isArray(c.parts)){
+          o[c.id] = c.parts.map(pid=>{
+            const pc = state.currentFormat.find(x=>x.id===pid);
+            return pc && pc.source ? (r[pc.source] ?? '') : '';
+          }).filter(v=>String(v).trim()).join(' ').trim();
+        }else{
+          const parts = (c.partHeaders||[]).filter(Boolean);
+          o[c.id] = parts.length
+            ? parts.map(h=>r[h] ?? '').filter(v=>String(v).trim()).join(' ').trim()
+            : (c.source ? (r[c.source] ?? '') : '');
+        }
       }else{
-        o[c.name] = c.source ? (r[c.source]??'') : '';
+        o[c.id] = c.source ? (r[c.source] ?? '') : '';
       }
     });
     return o;
   });
 }
-function submitCols(){
-  if(!state.currentFormat.length){ alert('No columns.'); return; }
-  buildOutput(); state.submitted=true;
-  downloadFile();
-  if(state.context==='student') setTimeout(()=>downloadWhatsapp(true), 500);
-  state.step=4; render();
+
+async function submitCols(){
+  if(!state.currentFormat.length){ alert('Add at least one column before exporting.'); return; }
+  buildOutput();
+  state.submitted = true;
+  state.step = 4;
+  render();
+  await runExport();
 }
 
-/* downloads */
-function autoFitColumns(ws, headers, rows){
-  headers.forEach((h,i)=>{
-    let maxLen = String(h||'').length;
+/* ============================================================
+   EXCEL EXPORT
+   ============================================================ */
+const MAX_COL_WIDTH = 50;
+
+/* percentages / CGPA go out as real numbers; mobile & enrollment stay text */
+function isNumericCol(name){
+  const n = norm(name);
+  if(n.includes('mobile')||n.includes('mob')||n.includes('phone')||n.includes('contact')) return false;
+  if(n.includes('enrollment')||n.includes('enroll')||n.includes('grno')) return false;
+  return n.includes('percent')||n.includes('cgpa')||n.includes('cpi')
+      || n.includes('ssc')||n.includes('hsc')||n.includes('diploma')||n.includes('graduation');
+}
+function cellValue(raw, colName){
+  if(typeof raw === 'number') return raw;
+  if(!isNumericCol(colName)) return raw;
+  const t = String(raw ?? '').trim().replace(/%\s*$/,'');
+  if(t !== '' && !isNaN(t)) return Number(t);
+  return raw;
+}
+
+function measureColumns(ws, cols, rows){
+  return cols.map((c,i)=>{
+    let maxLen = String(c.name||'').length;
     rows.forEach(r=>{
-      const len = String(r[h] ?? '').length;
+      const len = String(r[c.id] ?? '').length;
       if(len > maxLen) maxLen = len;
     });
-    ws.getColumn(i+1).width = Math.max(maxLen + 3, 10);
+    const wanted = Math.max(maxLen + 3, 10);
+    const width = Math.min(wanted, MAX_COL_WIDTH);
+    ws.getColumn(i+1).width = width;
+    return {width, wrap: wanted > MAX_COL_WIDTH};
   });
 }
+
+function borderAll(ws, totalRows, colCount){
+  const thin = {style:'thin', color:{argb:'FF000000'}};
+  for(let r=1;r<=totalRows;r++){
+    for(let c=1;c<=Math.max(colCount,1);c++){
+      ws.getCell(r,c).border = {top:thin, left:thin, bottom:thin, right:thin};
+    }
+  }
+}
+
+function saveBlob(buf, filename){
+  const blob = new Blob([buf], {type:'application/octet-stream'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(()=>URL.revokeObjectURL(url), 1000);
+}
+
 function formatDateDMY(iso){
   if(!iso) return '';
   const [y,m,d] = iso.split('-');
   if(!y||!m||!d) return iso;
-  return `${d}-${m}-${y}`;
+  return d+'-'+m+'-'+y;
 }
+
+function baseName(){ return (state.fileName||'student-data').replace(/\.[^.]+$/,''); }
 
 async function downloadFile(){
   if(!state.outputRows.length) return;
-  const base = (state.fileName||'student-data').replace(/\.[^.]+$/,'');
-  if(state.context==='attendance'){
-    await downloadAttendanceXlsx(base);
-    return;
-  }
-  await downloadStudentXlsx(base);
+  if(state.context==='attendance') await downloadAttendanceXlsx(baseName());
+  else await downloadStudentXlsx(baseName());
 }
 
+/* downloads run in sequence — no more 500ms race / .crdownload */
+async function runExport(){
+  try{
+    await downloadFile();
+    if(state.context==='student'){
+      await new Promise(r=>setTimeout(r, 400));  // browsers need a beat between two downloads
+      downloadWhatsapp(true);
+    }
+  }catch(err){
+    console.error(err);
+    alert('Export failed: '+(err && err.message ? err.message : 'unknown error')+'\nUse "Download again" to retry.');
+  }
+}
+function redownload(){ runExport(); }
+function redownloadCsv(){ downloadWhatsapp(false); }
+
 async function downloadStudentXlsx(base){
-  const headers = state.outputHeaders;
-  const colCount = headers.length;
+  const cols = state.outputCols;
+  const colCount = cols.length;
   const GREY = 'FFBFBFBF';
 
   const wb = new ExcelJS.Workbook();
@@ -559,11 +842,13 @@ async function downloadStudentXlsx(base){
   function styleCell(r,c,value,fill){
     const cell = ws.getCell(r,c);
     cell.value = value;
-    cell.alignment = {horizontal:'center', vertical:'middle'};
+    cell.alignment = {horizontal:'center', vertical:'middle', wrapText:true};
     cell.font = {bold:true};
     if(fill) cell.fill = {type:'pattern', pattern:'solid', fgColor:{argb:fill}};
     return cell;
   }
+
+  const metrics = measureColumns(ws, cols, state.outputRows);
 
   ws.mergeCells(1,1,1,Math.max(colCount,1));
   styleCell(1,1,'L. J. University',GREY);
@@ -571,41 +856,33 @@ async function downloadStudentXlsx(base){
   ws.mergeCells(2,1,2,Math.max(colCount,1));
   styleCell(2,1,'L. J. Industry Interaction & Placement Cell',GREY);
 
-  headers.forEach((h,i)=>{ styleCell(3,i+1,h,GREY); });
+  cols.forEach((c,i)=>{ styleCell(3,i+1,c.name,GREY); });
 
   state.outputRows.forEach((r,ri)=>{
-    headers.forEach((h,ci)=>{
+    cols.forEach((c,ci)=>{
       const cell = ws.getCell(4+ri, ci+1);
-      cell.value = r[h];
-      cell.alignment = {horizontal:'center', vertical:'middle'};
+      cell.value = cellValue(r[c.id], c.name);
+      cell.alignment = {horizontal:'center', vertical:'middle', wrapText:metrics[ci].wrap};
     });
   });
 
-  autoFitColumns(ws, headers, state.outputRows);
+  borderAll(ws, 3 + state.outputRows.length, colCount);
+  ws.views = [{state:'frozen', ySplit:3}];
 
-  const thin = {style:'thin', color:{argb:'FF000000'}};
-  const totalRows = 3 + state.outputRows.length;
-  for(let r=1;r<=totalRows;r++){
-    for(let c=1;c<=Math.max(colCount,1);c++){
-      ws.getCell(r,c).border = {top:thin, left:thin, bottom:thin, right:thin};
-    }
-  }
-
-  const buf = await wb.xlsx.writeBuffer();
-  const blob = new Blob([buf], {type:'application/octet-stream'});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = base + '-formatted.xlsx';
-  document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  saveBlob(await wb.xlsx.writeBuffer(), base + '-formatted.xlsx');
 }
 
 async function downloadAttendanceXlsx(base){
-  const headers = state.outputHeaders;
-  const colCount = headers.length;
-  const sigRemarkIdx = headers.reduce((arr,h,i)=>{ const n=norm(h); if(n==='signature'||n==='remark') arr.push(i); return arr; }, []);
-  const otherIdx = headers.map((_,i)=>i).filter(i=>!sigRemarkIdx.includes(i));
+  const cols = state.outputCols;
+  const colCount = cols.length;
   const GREY = 'FFBFBFBF', GREEN = 'FF92D050';
+
+  const sigIdx = cols.reduce((arr,c,i)=>{ const n=norm(c.name); if(n==='signature'||n==='remark') arr.push(i); return arr; }, []);
+  // the date band only works if Signature/Remark are next to each other AND at the far right;
+  // otherwise merging would collide with the vertical header merges
+  const contiguous = sigIdx.length>0 && (sigIdx[sigIdx.length-1] - sigIdx[0] === sigIdx.length-1);
+  const atEnd = sigIdx.length>0 && sigIdx[sigIdx.length-1] === colCount-1;
+  const useDateBand = contiguous && atEnd;
 
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet('Attendance');
@@ -613,131 +890,139 @@ async function downloadAttendanceXlsx(base){
   function styleCell(r,c,value,fill){
     const cell = ws.getCell(r,c);
     cell.value = value;
-    cell.alignment = {horizontal:'center', vertical:'middle'};
+    cell.alignment = {horizontal:'center', vertical:'middle', wrapText:true};
     cell.font = {bold:true};
     if(fill) cell.fill = {type:'pattern', pattern:'solid', fgColor:{argb:fill}};
     return cell;
   }
 
+  const metrics = measureColumns(ws, cols, state.outputRows);
+  const dateStr = formatDateDMY(state.attendanceDate);
+  const company = String(state.companyName||'').trim();
+
   ws.mergeCells(1,1,1,Math.max(colCount,1));
   styleCell(1,1,'IIPC 2027',GREY);
 
   ws.mergeCells(2,1,2,Math.max(colCount,1));
-  styleCell(2,1, `${(state.companyName||'').trim() || 'Company Name'} Attendance Sheet`, GREY);
+  // if the date band can't be drawn, the date goes into the banner so it is never lost
+  styleCell(2,1, company+' Attendance Sheet'+(useDateBand ? '' : (dateStr ? ' — '+dateStr : '')), GREY);
 
-  otherIdx.forEach(i=>{
-    const col=i+1;
-    ws.mergeCells(3,col,4,col);
-    styleCell(3,col, headers[i], GREY);
-  });
-
-  if(sigRemarkIdx.length){
-    const c1 = sigRemarkIdx[0]+1, c2 = sigRemarkIdx[sigRemarkIdx.length-1]+1;
+  if(useDateBand){
+    cols.forEach((c,i)=>{
+      if(sigIdx.includes(i)) return;
+      ws.mergeCells(3,i+1,4,i+1);
+      styleCell(3,i+1, c.name, GREY);
+    });
+    const c1 = sigIdx[0]+1, c2 = sigIdx[sigIdx.length-1]+1;
     if(c2>c1) ws.mergeCells(3,c1,3,c2);
-    styleCell(3,c1, formatDateDMY(state.attendanceDate), GREY);
-    sigRemarkIdx.forEach(i=>{ styleCell(4,i+1, headers[i], GREEN); });
+    styleCell(3,c1, dateStr, GREY);
+    sigIdx.forEach(i=>{ styleCell(4,i+1, cols[i].name, GREEN); });
+  }else{
+    cols.forEach((c,i)=>{
+      ws.mergeCells(3,i+1,4,i+1);
+      styleCell(3,i+1, c.name, sigIdx.includes(i) ? GREEN : GREY);
+    });
   }
 
   state.outputRows.forEach((r,ri)=>{
-    headers.forEach((h,ci)=>{
+    cols.forEach((c,ci)=>{
       const cell = ws.getCell(5+ri, ci+1);
-      cell.value = r[h];
-      cell.alignment = {horizontal:'center', vertical:'middle'};
+      cell.value = cellValue(r[c.id], c.name);
+      cell.alignment = {horizontal:'center', vertical:'middle', wrapText:metrics[ci].wrap};
     });
   });
 
-  autoFitColumns(ws, headers, state.outputRows);
+  borderAll(ws, 4 + state.outputRows.length, colCount);
+  ws.views = [{state:'frozen', ySplit:4}];
 
-  const thin = {style:'thin', color:{argb:'FF000000'}};
-  const totalRows = 4 + state.outputRows.length;
-  for(let r=1;r<=totalRows;r++){
-    for(let c=1;c<=Math.max(colCount,1);c++){
-      ws.getCell(r,c).border = {top:thin, left:thin, bottom:thin, right:thin};
-    }
-  }
-
-  const buf = await wb.xlsx.writeBuffer();
-  const blob = new Blob([buf], {type:'application/octet-stream'});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = base + '-attendance.xlsx';
-  document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  saveBlob(await wb.xlsx.writeBuffer(), base + '-attendance.xlsx');
 }
+
+/* ============================================================
+   CONTACT CSV
+   ============================================================ */
 function csvEsc(v){ v=String(v??''); return /[",\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v; }
 function downloadCSV(filename, headers, rows2d){
   const lines=[headers.map(csvEsc).join(','), ...rows2d.map(r=>r.map(csvEsc).join(','))];
-  const blob=new Blob([lines.join('\n')],{type:'text/csv;charset=utf-8;'});
+  const blob=new Blob(['\ufeff'+lines.join('\r\n')],{type:'text/csv;charset=utf-8;'});
   const url=URL.createObjectURL(blob); const a=document.createElement('a');
   a.href=url; a.download=filename; document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  setTimeout(()=>URL.revokeObjectURL(url), 1000);
+}
+function whatsappCols(){
+  const nameCols = state.outputCols.filter(c=>norm(c.name).includes('name'));
+  const mobileCol = state.outputCols.find(c=>{ const n=norm(c.name); return n.includes('mobile')||n.includes('mob')||n.includes('phone')||n.includes('contact'); });
+  return {nameCols, mobileCol};
 }
 function downloadWhatsapp(silent){
-  const nameCols = state.outputHeaders.filter(h=>norm(h).includes('name'));
-  const mobileCol = state.outputHeaders.find(h=>{ const n=norm(h); return n.includes('mobile')||n.includes('mob')||n.includes('phone')||n.includes('contact'); });
+  const {nameCols, mobileCol} = whatsappCols();
   if(!nameCols.length || !mobileCol){
-    if(!silent) alert('Could not find name / mobile columns to build this from — rename a column to include "Name" and one to include "Mobile".');
+    if(!silent) alert('No name / mobile columns in the output. Rename one column to include "Name" and one to include "Mobile", then export again.');
     return;
   }
-  const rows2d = state.outputRows.map(r=>[nameCols.map(c=>r[c]).filter(Boolean).join(' ').trim(), r[mobileCol]??'']);
-  const base=(state.fileName||'student-data').replace(/\.[^.]+$/,'');
-  downloadCSV(base+'-whatsapp-group.csv', ['name','mobile'], rows2d);
+  const rows2d = state.outputRows.map(r=>[
+    nameCols.map(c=>r[c.id]).filter(v=>String(v??'').trim()).join(' ').trim(),
+    r[mobileCol.id] ?? ''
+  ]);
+  downloadCSV(baseName()+'-whatsapp-group.csv', ['name','mobile'], rows2d);
 }
 
-/* render */
+/* ============================================================
+   RENDER
+   ============================================================ */
 function render(){
   const app=document.getElementById('app');
   let body='';
   if(state.step===1) body = renderUpload();
-  else if(state.step===20) body = renderOnboarding();
+  else if(state.step===6) body = renderSheetPicker();
   else if(state.step===5) body = renderFilter();
   else if(state.step===2) body = renderChoice();
   else if(state.step===3) body = renderColumns();
   else if(state.step===4) body = renderDownload();
 
+  const title = state.fileName
+    ? (state.context==='attendance' ? 'Attendance' : 'Student Data + Contact CSV')
+    : 'Data Formatter';
+
   app.innerHTML = `
-    <h1>${state.fileName ? (state.context==='attendance' ? 'Attendance' : 'Student Data + Contact CSV') : 'Data Formatter'}</h1>
-    ${state.fileName && state.step!==1 ? `<div class="file-chip"><span>${esc(state.fileName)} · ${state.rows.length} rows</span><button onclick="resetAll()">Remove</button></div>` : ''}
+    <h1>${title}</h1>
+    ${state.fileName && state.step!==1 ? `
+      <div class="file-chip">
+        <span>${esc(state.fileName)}${state.activeSheet ? ' · '+esc(state.activeSheet) : ''} · ${state.rows.length} rows</span>
+        <button onclick="resetAll()">Remove</button>
+      </div>` : ''}
     ${body}
   `;
 
   if(state.step===1){
-    const dz=document.getElementById('dropzone'), fi=document.getElementById('fileInput');
-    dz.addEventListener('click', ()=>fi.click());
-    fi.addEventListener('change', e=>{ if(e.target.files[0]) handleFile(e.target.files[0],'student'); });
-    dz.addEventListener('dragover', e=>{ e.preventDefault(); dz.classList.add('drag'); });
-    dz.addEventListener('dragleave', ()=>dz.classList.remove('drag'));
-    dz.addEventListener('drop', e=>{ e.preventDefault(); dz.classList.remove('drag'); if(e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0],'student'); });
+    wireDrop('dropzone','fileInput', f=>handleFile(f,'student'));
+    wireDrop('dropzoneAttendance','fileInputAttendance', f=>handleFile(f,'attendance'));
+  }
+  if(state.step===5 && !state.masterFileName) wireDrop('dropzoneMaster','fileInputMaster', handleMasterFile);
+  if(state.step===2 && state.context==='attendance') onAttendanceMeta();
+}
 
-    const dzA=document.getElementById('dropzoneAttendance'), fiA=document.getElementById('fileInputAttendance');
-    dzA.addEventListener('click', ()=>fiA.click());
-    fiA.addEventListener('change', e=>{ if(e.target.files[0]) handleFile(e.target.files[0],'attendance'); });
-    dzA.addEventListener('dragover', e=>{ e.preventDefault(); dzA.classList.add('drag'); });
-    dzA.addEventListener('dragleave', ()=>dzA.classList.remove('drag'));
-    dzA.addEventListener('drop', e=>{ e.preventDefault(); dzA.classList.remove('drag'); if(e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0],'attendance'); });
-  }
-  if(state.step===5 && !state.masterFileName){
-    const dzM=document.getElementById('dropzoneMaster'), fiM=document.getElementById('fileInputMaster');
-    if(dzM && fiM){
-      dzM.addEventListener('click', ()=>fiM.click());
-      fiM.addEventListener('change', e=>{ if(e.target.files[0]) handleMasterFile(e.target.files[0]); });
-      dzM.addEventListener('dragover', e=>{ e.preventDefault(); dzM.classList.add('drag'); });
-      dzM.addEventListener('dragleave', ()=>dzM.classList.remove('drag'));
-      dzM.addEventListener('drop', e=>{ e.preventDefault(); dzM.classList.remove('drag'); if(e.dataTransfer.files[0]) handleMasterFile(e.dataTransfer.files[0]); });
-    }
-  }
+function wireDrop(zoneId, inputId, onFile){
+  const dz=document.getElementById(zoneId), fi=document.getElementById(inputId);
+  if(!dz || !fi) return false;
+  dz.addEventListener('click', ()=>fi.click());
+  fi.addEventListener('change', e=>{ if(e.target.files[0]) onFile(e.target.files[0]); fi.value=''; });
+  dz.addEventListener('dragover', e=>{ e.preventDefault(); dz.classList.add('drag'); });
+  dz.addEventListener('dragleave', ()=>dz.classList.remove('drag'));
+  dz.addEventListener('drop', e=>{ e.preventDefault(); dz.classList.remove('drag'); if(e.dataTransfer.files[0]) onFile(e.dataTransfer.files[0]); });
+  return false;
 }
 
 function renderUpload(){
   return `
     <div style="display:flex;gap:24px;justify-content:center;flex-wrap:wrap;">
       <div style="text-align:center;">
-        <div class="dropzone" id="dropzone"><span class="arrow">&#8595;</span></div>
+        <div class="dropzone" id="dropzone" tabindex="0"><span class="arrow">&#8595;</span></div>
         <div class="upload-label">Upload File</div>
         <div class="hint" style="font-weight:600;color:var(--accent);font-size:13px;">Student Data</div>
       </div>
       <div style="text-align:center;">
-        <div class="dropzone" id="dropzoneAttendance"><span class="arrow">&#8595;</span></div>
+        <div class="dropzone" id="dropzoneAttendance" tabindex="0"><span class="arrow">&#8595;</span></div>
         <div class="upload-label">Upload File</div>
         <div class="hint" style="font-weight:600;color:var(--accent);font-size:13px;">Attendance</div>
       </div>
@@ -747,43 +1032,33 @@ function renderUpload(){
   `;
 }
 
-function renderOnboarding(){
-  const hasFile = state.headers.length>0;
+function renderSheetPicker(){
   return `
-    <span class="back" onclick="state.step=1; render();">&larr; Back</span>
-    <div class="result-label">set up your column format (one time)</div>
-    ${state.draft.map((c,i)=>`
-      <div class="col-row${justMoved.has(c.id)?' bounce':''}" data-id="${c.id}" ondragover="dragOverRow(event,'draft',${i})">
-        <div class="name">${esc(c.name)}</div>
-        ${hasFile ? `
-        <select class="src">
-          <option value="">(no match)</option>
-          ${state.headers.map(h=>`<option value="${esc(h)}" ${autoMatch(c.name,state.headers)===h?'selected':''}>${esc(h)}</option>`).join('')}
-        </select>` : ''}
-        <button class="icon-btn" draggable="true" ondragstart="dragStart(event,'draft',${i})" ondragend="dragEnd()">=</button>
-        <button class="icon-btn x" onclick="draftDel('${c.id}')">&times;</button>
-      </div>`).join('')}
-    <div class="add-row">
-      <input id="newColName2" placeholder="column name" onkeydown="if(event.key==='Enter'){draftAdd(this.value); this.value='';}">
-      <button class="icon-btn" onclick="const i=document.getElementById('newColName2'); draftAdd(i.value); i.value='';">+</button>
-    </div>
-    <button class="btn btn-gold" onclick="saveOnboarding()">save &amp; continue</button>
+    <span class="back" onclick="cancelSheetPick()">&larr; Back</span>
+    <div class="result-label">This file has more than one sheet. Pick the one to use:</div>
+    ${state.sheetNames.map((s,i)=>`
+      <button class="sheet-row" onclick="pickSheetAt(${i})">
+        <span>${esc(s.name)}</span><small>${s.rows} rows</small>
+      </button>`).join('')}
   `;
 }
 
 function renderFilter(){
   return `
     <div class="result-label">Check against master sheet? (optional)</div>
-    <p class="lede" style="color:var(--faint);font-size:12.5px;margin:0 0 16px;">Matches each student by Enrollment No., then Mobile No., then Name, and marks Placed / Debarred / Eligible / NA.</p>
+    <p style="color:var(--faint);font-size:12.5px;margin:0 0 16px;">Matches each student by Enrollment No., then Mobile No., then Name, and marks Placed / Debarred / Eligible / NA.</p>
     ${state.masterFileName ? `
-      <div class="file-chip"><span>${esc(state.masterFileName)} · ${state.masterRows.length} rows</span></div>
+      <div class="file-chip">
+        <span>${esc(state.masterFileName)} · ${state.masterRows.length} rows</span>
+        <button onclick="removeMaster()">Remove</button>
+      </div>
       ${state.filterSummary ? `
         <div class="col-heading">Result:</div>
         ${Object.entries(state.filterSummary).map(([k,v])=>`<div class="count-row"><div class="count-label">${esc(k)}</div><div class="count-value">${v}</div></div>`).join('')}
       ` : ''}
       <button class="btn btn-gold" onclick="state.step=2; render();">Continue</button>
     ` : `
-      <div class="dropzone" id="dropzoneMaster" style="margin-top:6px;"><span class="arrow">&#8595;</span></div>
+      <div class="dropzone" id="dropzoneMaster" style="margin-top:6px;" tabindex="0"><span class="arrow">&#8595;</span></div>
       <div class="upload-label" style="margin-bottom:20px;">Upload Master Sheet</div>
       <input type="file" id="fileInputMaster" accept=".xlsx,.xls,.csv">
       <button class="btn" onclick="skipFilter()">Skip</button>
@@ -792,105 +1067,110 @@ function renderFilter(){
 }
 
 function renderChoice(){
+  const isAtt = state.context==='attendance';
+  const ok = !isAtt || attendanceMetaOk();
   return `
-    ${state.context==='attendance' ? `
-    <div class="result-label">Company Name:</div>
-    <input id="companyNameInput" placeholder="Enter company name" value="${esc(state.companyName||'')}"
-      oninput="state.companyName=this.value" style="width:100%;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:9px 12px;font-size:13.5px;color:var(--text);font-family:var(--font);margin-bottom:18px;">
-    <div class="result-label">Date:</div>
-    <input type="date" id="attendanceDateInput" value="${esc(state.attendanceDate||'')}"
-      oninput="state.attendanceDate=this.value" style="width:100%;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:9px 12px;font-size:13.5px;color:var(--text);font-family:var(--font);margin-bottom:18px;">
+    ${isAtt ? `
+    <div class="result-label">Company name</div>
+    <input class="field" id="companyNameInput" placeholder="e.g. Tata Consultancy Services"
+      value="${esc(state.companyName||'')}" oninput="onAttendanceMeta()">
+    <div class="result-label">Drive date</div>
+    <input class="field" type="date" id="attendanceDateInput"
+      value="${esc(state.attendanceDate||'')}" oninput="onAttendanceMeta()">
+    <div class="warn" id="metaHint" style="${ok?'display:none;':''}">Fill in the company name and date to continue.</div>
     ` : ''}
     <div class="result-label">Result:</div>
-    <label class="radio-row"><input type="radio" name="m" ${state.modeChoice==='permanent'?'checked':''} onchange="selectPermanent()"><span>${state.context==='attendance' ? 'Permanent Format ( Attendance )' : 'Permanent Format ( Student Data + Contact CSV )'}</span></label>
-    <label class="radio-row"><input type="radio" name="m" ${state.modeChoice==='edit'?'checked':''} onchange="selectEdit()"><span>Edit Column</span></label>
-    <button class="btn btn-gold" ${state.modeChoice==='edit'?'':'disabled'} onclick="proceedChoice()">Continue</button>
+    <label class="radio-row ${ok?'':'is-disabled'}">
+      <input type="radio" name="m" ${ok?'':'disabled'} ${state.modeChoice==='permanent'?'checked':''} onchange="selectPermanent()">
+      <span>${isAtt ? 'Permanent Format ( Attendance )' : 'Permanent Format ( Student Data + Contact CSV )'}</span>
+    </label>
+    <label class="radio-row ${ok?'':'is-disabled'}">
+      <input type="radio" name="m" ${ok?'':'disabled'} ${state.modeChoice==='edit'?'checked':''} onchange="selectEdit()">
+      <span>Edit Column</span>
+    </label>
+    <button class="btn btn-gold" id="continueBtn" ${(state.modeChoice==='edit' && ok)?'':'disabled'} onclick="proceedChoice()">Continue</button>
   `;
 }
 
 function renderColumns(){
-  const locked = state.mode==='permanent';
+  const cf = state.currentFormat;
+  const dupes = new Set();
+  const seen = new Set();
+  cf.forEach(c=>{ const n=norm(c.name); if(seen.has(n)) dupes.add(n); seen.add(n); });
+
   return `
     <span class="back" onclick="state.step=2; render();">&larr; Back</span>
     <div class="col-heading">Update Column:</div>
-    ${state.currentFormat.map((c,i)=>`
-      <div class="col-row${justMoved.has(c.id)?' bounce':''}" data-id="${c.id}" ${locked?'':`ondragover="dragOverRow(event,'current',${i})"`}>
-        ${locked
-          ? `<div class="name">${esc(c.name)}</div>`
-          : `<input class="name" value="${esc(c.name)}" onchange="colRename('${c.id}', this.value)">`}
-        ${c.type==='serial'
-          ? `<div class="name" style="flex:1;color:var(--muted);">Auto Sr. No.</div>`
-          : c.type==='blank'
-          ? `<div class="name" style="flex:1;color:var(--muted);">Blank column</div>`
-          : (c.type==='concat' || c.concat)
-          ? `<div class="name" style="flex:1;color:var(--muted);">Combined column</div>`
-          : `<select class="src" onchange="colSetSource('${c.id}', this.value)">
+    ${cf.map((c,i)=>{
+      const isConcat = c.type==='concat';
+      const concatFallback = isConcat && !Array.isArray(c.parts) && !(c.partHeaders||[]).some(Boolean);
+      let middle;
+      if(c.type==='serial') middle = `<div class="name" style="flex:1;color:var(--muted);">Auto Sr. No.</div>`;
+      else if(c.type==='blank') middle = `<div class="name" style="flex:1;color:var(--muted);">Blank column</div>`;
+      else if(isConcat && !concatFallback) middle = `<div class="name" style="flex:1;color:var(--muted);">Combined column</div>`;
+      else middle = `<select class="src" onchange="colSetSource('${c.id}', this.value)">
           <option value="">(no match)</option>
           ${state.headers.map(h=>`<option value="${esc(h)}" ${c.source===h?'selected':''}>${esc(h)}</option>`).join('')}
-        </select>`}
-        ${locked ? '' : `
-        <button class="icon-btn" draggable="true" ondragstart="dragStart(event,'current',${i})" ondragend="dragEnd()">=</button>
-        <button class="icon-btn x" onclick="colDel('${c.id}')">&times;</button>`}
-      </div>`).join('')}
-    ${locked ? '' : `
+        </select>`;
+      return `
+      <div class="col-row${justMoved.has(c.id)?' bounce':''}" data-id="${c.id}" ondragover="dragOverRow(event,${i})">
+        <input class="name" value="${esc(c.name)}" onchange="colRename('${c.id}', this.value)"
+          style="${dupes.has(norm(c.name))?'border-color:var(--red);':''}">
+        ${middle}
+        <button class="icon-btn" draggable="true" ondragstart="dragStart(event,${i})" ondragend="dragEnd()" title="Drag to reorder">=</button>
+        <button class="icon-btn x" onclick="colDel('${c.id}')" title="Remove column">&times;</button>
+      </div>`;
+    }).join('')}
+    ${dupes.size ? `<div class="warn">Two columns share a name. The export still keeps both sets of values, but the headings will read the same.</div>` : ''}
     <div class="add-row">
       <input id="newColName" placeholder="Add Column Name" onkeydown="if(event.key==='Enter') addCol();">
       <button class="icon-btn" onclick="addCol()">+</button>
     </div>
-    <button class="btn btn-ghost btn-sm" style="width:100%;margin-top:10px;" onclick="addNameConcat()">+ Add "Name" (First + Middle + Last combined)</button>`}
-    <button class="btn btn-gold" onclick="submitCols()">Submit</button>
+    <button class="btn btn-ghost btn-sm" onclick="addNameConcat()">+ Add "Name" (First + Middle + Last combined)</button>
+    <button class="btn btn-gold" onclick="submitCols()">Export</button>
   `;
 }
 
-function deptCounts(){
-  const col = state.outputHeaders.find(h=>{ const n=norm(h); return n.includes('degree')||n.includes('department')||n.includes('branch')||n.includes('course'); });
+function countsBy(matcher){
+  const col = state.outputCols.find(c=>matcher(norm(c.name)));
   if(!col) return null;
   const counts = {};
   state.outputRows.forEach(r=>{
-    const v = (r[col]||'').toString().trim() || '(blank)';
+    const v = (r[col.id]||'').toString().trim() || '(blank)';
     counts[v] = (counts[v]||0)+1;
   });
   return {col, counts};
 }
-
-function jobProfileCounts(){
-  const col = state.outputHeaders.find(h=>{ const n=norm(h); return n.includes('jobprofile')||n.includes('jobtitle')||n.includes('jobrole')||(n.includes('job')&&n.includes('profile'))||n.includes('position'); });
-  if(!col) return null;
-  const counts = {};
-  state.outputRows.forEach(r=>{
-    const v = (r[col]||'').toString().trim() || '(blank)';
-    counts[v] = (counts[v]||0)+1;
-  });
-  return {col, counts};
+function countBlock(heading, data){
+  if(!data) return '';
+  const total = Object.values(data.counts).reduce((a,b)=>a+b,0);
+  return `
+    <div class="col-heading">${heading}</div>
+    ${Object.entries(data.counts).map(([k,v])=>`
+      <div class="count-row"><div class="count-label">${esc(k)}</div><div class="count-value">${v}</div></div>`).join('')}
+    <div class="count-row total"><div class="count-label">Total</div><div class="count-value">${total}</div></div>
+  `;
 }
 
 function renderDownload(){
-  const dc = deptCounts();
-  const jc = jobProfileCounts();
+  const dc = countsBy(n=>n.includes('degree')||n.includes('department')||n.includes('branch')||n.includes('course'));
+  const jc = countsBy(n=>n.includes('jobprofile')||n.includes('jobtitle')||n.includes('jobrole')||(n.includes('job')&&n.includes('profile'))||n.includes('position'));
+  const {nameCols, mobileCol} = whatsappCols();
+  const csvOk = state.context==='student' && nameCols.length && mobileCol;
+
   return `
     <span class="back" onclick="state.step = 2; render();">&larr; Back</span>
     <div class="result-label" style="text-align:center;">${state.outputRows.length} students formatted</div>
-    <button class="btn" onclick="resetAll()">Start Over</button>
-    ${dc ? `
-    <div class="col-heading">Department Wise Count:</div>
-    ${Object.entries(dc.counts).map(([k,v])=>`
-      <div class="count-row"><div class="count-label">${esc(k)}</div><div class="count-value">${v}</div></div>
-    `).join('')}
-    <div class="count-row"><div class="count-label" style="background:#3b82f6;color:#ffffff;font-weight:700;">Total</div><div class="count-value" style="background:#3b82f6;color:#ffffff;font-weight:700;">${Object.values(dc.counts).reduce((a,b)=>a+b,0)}</div></div>
-    ` : ''}
-    ${jc ? `
-    <div class="col-heading">Job Profile Wise Count:</div>
-    ${Object.entries(jc.counts).map(([k,v])=>`
-      <div class="count-row"><div class="count-label">${esc(k)}</div><div class="count-value">${v}</div></div>
-    `).join('')}
-    ` : ''}
+    <button class="btn btn-gold" onclick="redownload()">Download again</button>
+    ${csvOk ? `<button class="link-btn" onclick="redownloadCsv()">Download contact CSV only</button>` : ''}
+    ${state.context==='student' && !csvOk ? `<div class="warn" style="margin-top:12px;text-align:center;">No name / mobile columns found, so no contact CSV was created.</div>` : ''}
+    <button class="btn" onclick="resetAll()">Start over</button>
+    ${countBlock('Department Wise Count:', dc)}
+    ${countBlock('Job Profile Wise Count:', jc)}
   `;
 }
 
-async function init(){
-  render();
-}
-init();
+render();
 </script>
 </body>
 </html>
