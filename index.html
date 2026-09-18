@@ -61,6 +61,16 @@
   .count-value{flex:0 0 60px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
     padding:9px 12px;font-size:13.5px;font-family:var(--font);text-align:center;}
   .count-row.total .count-label, .count-row.total .count-value{background:var(--accent);color:#fff;font-weight:700;border-color:var(--accent);}
+  .count-value.wide{flex:0 0 auto;min-width:60px;white-space:nowrap;color:var(--muted);font-size:12.5px;}
+  .dup-label{font-size:12px;color:var(--faint);margin:14px 0 6px;letter-spacing:.02em;}
+  .btn-dup{background:#2a1518;border-color:#7a3b36;color:#e79a93;}
+  .btn-dup:hover{border-color:var(--red);color:#f0a79f;}
+  @keyframes dupBlink{
+    0%,49%{background:var(--red);border-color:var(--red);color:#ffffff;}
+    50%,100%{background:#2a1518;border-color:#7a3b36;color:#e79a93;}
+  }
+  .btn-dup.blink{animation:dupBlink 1s steps(1,end) infinite;}
+  @media (prefers-reduced-motion: reduce){ .btn-dup.blink{animation:none;} }
   .col-row input.name{width:100%;color:var(--text);}
   .col-row select.src{width:auto;min-width:0;flex:1;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
     padding:9px 8px;font-size:12px;color:var(--muted);font-family:var(--font);}
@@ -130,7 +140,7 @@ const state = {
   currentFormat: [],
   outputCols: [],          // [{id, name}]  — output is keyed by id, not name
   outputRows: [],          // [{ <colId>: value }]
-  submitted:false,
+  submitted:false, dupSeen:false,
   filterApplied:false, masterFileName:null, masterHeaders:[], masterRows:[], filterSummary:null,
   statusKey:null, matchedKey:null,
   sheetNames:[], activeSheet:null,
@@ -293,7 +303,7 @@ function resetAll(){
   state.step=1; state.fileName=null; state.headers=[]; state.rows=[];
   state.context='student'; state.companyName=''; state.attendanceDate='';
   state.mode=null; state.modeChoice=null; state.currentFormat=[];
-  state.outputCols=[]; state.outputRows=[]; state.submitted=false;
+  state.outputCols=[]; state.outputRows=[]; state.submitted=false; state.dupSeen=false;
   state.filterApplied=false; state.masterFileName=null; state.masterHeaders=[]; state.masterRows=[];
   state.filterSummary=null; state.statusKey=null; state.matchedKey=null;
   state.sheetNames=[]; state.activeSheet=null;
@@ -643,7 +653,7 @@ function onMetaInput(){
 
 function contactPreview(){
   const p = String(state.companyName||'').trim();
-  const sample = 'Harshad Baldaniya';
+  const sample = 'Harshad Narshibhai Baldaniya';
   return p ? p+' '+sample : sample;
 }
 
@@ -721,6 +731,7 @@ function sortRowsForOutput(rows){
 }
 
 function buildOutput(){
+  state.dupSeen = false;                 // a fresh export re-arms the blink
   const rows = sortRowsForOutput(state.rows);
   state.outputCols = state.currentFormat.map(c=>({id:c.id, name:c.name}));
   state.outputRows = rows.map((r,ri)=>{
@@ -984,6 +995,7 @@ function render(){
   else if(state.step===2) body = renderChoice();
   else if(state.step===3) body = renderColumns();
   else if(state.step===4) body = renderDownload();
+  else if(state.step===7) body = renderDuplicates();
 
   const title = state.fileName ? (CONTEXTS[state.context]||CONTEXTS.student).title : 'Data Formatter';
 
@@ -1141,13 +1153,98 @@ function countBlock(heading, data){
     '<div class="count-row total"><div class="count-label">Total</div><div class="count-value">'+total+'</div></div>';
 }
 
+/* ---------- possible duplicates (report only — nothing is removed) ---------- */
+function dupKeyMobile(v){
+  const d = String(v??'').replace(/\D/g,'');
+  if(!d) return null;
+  return d.length>10 ? d.slice(-10) : d;          // +91 98765 43210 === 9876543210
+}
+function dupKeyEmail(v){
+  const s = String(v??'').trim().toLowerCase();
+  return s || null;
+}
+function dupKeyName(v){
+  const t = tokensOf(v);                           // word order ignored: "Patel Meet" === "Meet Patel"
+  return t.length ? t.slice().sort().join(' ') : null;
+}
+
+/* returns [{key, rows:[srNo,...]}] for values that appear more than once */
+function dupGroups(cols, keyFn){
+  if(!cols.length) return [];
+  const map = new Map();
+  state.outputRows.forEach((r,i)=>{
+    const raw = cols.map(c=>r[c.id]).filter(v=>String(v??'').trim()).join(' ');
+    const key = keyFn(raw);
+    if(!key) return;
+    if(!map.has(key)) map.set(key, {key, raw:String(raw).trim(), rows:[]});
+    map.get(key).rows.push(i+1);                   // i+1 === the Sr. No. printed in the sheet
+  });
+  return [...map.values()].filter(g=>g.rows.length>1);
+}
+
+/* computes the duplicate sets — returns null for flows that don't use them */
+function dupSets(){
+  if(state.context!=='student') return null;
+
+  const nameCols   = state.outputCols.filter(c=>norm(c.name).includes('name'));
+  const enrollCols = state.outputCols.filter(c=>{ const n=norm(c.name);
+    return n.includes('enrollment')||n.includes('enroll')||n.includes('grno'); }).slice(0,1);
+  const mobileCols  = state.outputCols.filter(c=>{ const n=norm(c.name);
+    return n.includes('mobile')||n.includes('mob')||n.includes('phone')||n.includes('contact'); }).slice(0,1);
+  const emailCols  = state.outputCols.filter(c=>{ const n=norm(c.name);
+    return n.includes('email')||n.includes('mail'); }).slice(0,1);
+
+  const sets = [
+    {label:'Enrollment No.', groups: dupGroups(enrollCols, normEnroll),  show:'key'},
+    {label:'Mobile',         groups: dupGroups(mobileCols, dupKeyMobile), show:'key'},
+    {label:'Email',          groups: dupGroups(emailCols,  dupKeyEmail),  show:'raw'},
+    {label:'Name',           groups: dupGroups(nameCols,   dupKeyName),   show:'raw'},
+  ];
+  return {sets, total: sets.reduce((a,s)=>a+s.groups.length,0)};
+}
+
+function openDuplicates(){
+  state.dupSeen = true;      // looked at once — stop the blink
+  state.step = 7;
+  render();
+}
+
+function renderDuplicates(){
+  const d = dupSets();
+  let html = '<span class="back" onclick="state.step=4; render();">&larr; Back</span>'+
+    '<div class="col-heading" style="margin-top:0;">Possible Duplicates</div>';
+
+  if(!d || !d.total){
+    return html+'<div class="count-row"><div class="count-label" style="color:var(--faint);">No duplicates found</div></div>'+
+      '<button class="btn" onclick="state.step=4; render();">Back to download</button>';
+  }
+
+  d.sets.forEach(s=>{
+    if(!s.groups.length) return;
+    html += '<div class="dup-label">'+s.label+' &middot; '+s.groups.length+
+      (s.groups.length===1?' group':' groups')+'</div>';
+    html += s.groups.map(g=>
+      '<div class="count-row"><div class="count-label">'+esc(s.show==='key' ? g.key : g.raw)+
+      '</div><div class="count-value wide">Sr. '+g.rows.join(', ')+'</div></div>').join('');
+  });
+  return html+
+    '<div class="hint">Nothing was removed — these are only flagged for you to check. Sr. numbers match the downloaded sheet.</div>'+
+    '<button class="btn" onclick="state.step=4; render();">Back to download</button>';
+}
+
 function renderDownload(){
   const dc = countsBy(n=>n.includes('degree')||n.includes('department')||n.includes('branch')||n.includes('course'));
   const jc = countsBy(n=>n.includes('jobprofile')||n.includes('jobtitle')||n.includes('jobrole')||(n.includes('job')&&n.includes('profile'))||n.includes('position'));
   const noun = state.context==='contact' ? 'contacts saved' : 'students formatted';
+  const d = dupSets();
+  const dupBtn = d
+    ? '<button class="btn btn-dup'+((d.total && !state.dupSeen) ? ' blink' : '')+'" onclick="openDuplicates()">'+
+      'Possible Duplicates'+(d.total ? ' ('+d.total+')' : '')+'</button>'
+    : '';
   return '<span class="back" onclick="state.step = 2; render();">&larr; Back</span>'+
     '<div class="result-label" style="text-align:center;">'+state.outputRows.length+' '+noun+'</div>'+
     '<button class="btn btn-gold" onclick="redownload()">Download again</button>'+
+    dupBtn+
     '<button class="btn" onclick="resetAll()">Start over</button>'+
     countBlock('Department Wise Count:', dc)+
     countBlock('Job Profile Wise Count:', jc);
