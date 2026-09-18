@@ -16,6 +16,7 @@
   body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font);
     min-height:100vh;display:flex;align-items:center;justify-content:center;}
   #app{max-width:560px;width:100%;margin:0 auto;padding:40px 20px 80px;}
+  #app.wide{max-width:1000px;}
   h1{font-size:16px;font-weight:600;text-align:center;color:var(--muted);margin:0 0 34px;letter-spacing:.02em;}
   .back{font-size:12.5px;color:var(--faint);cursor:pointer;margin-bottom:16px;display:inline-block;}
   .back:hover{color:var(--muted);}
@@ -62,7 +63,15 @@
     padding:9px 12px;font-size:13.5px;font-family:var(--font);text-align:center;}
   .count-row.total .count-label, .count-row.total .count-value{background:var(--accent);color:#fff;font-weight:700;border-color:var(--accent);}
   .count-value.wide{flex:0 0 auto;min-width:60px;white-space:nowrap;color:var(--muted);font-size:12.5px;}
-  .dup-label{font-size:12px;color:var(--faint);margin:14px 0 6px;letter-spacing:.02em;}
+  .dup-label{font-size:12px;color:var(--accent);margin:14px 0 6px;letter-spacing:.02em;}
+  .dup-key{font-size:12.5px;color:var(--text);margin:12px 0 6px;font-family:var(--mono);}
+  .dup-scroll{overflow-x:auto;margin-bottom:6px;}
+  .dup-table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  .dup-table th{background:var(--surface);color:var(--muted);font-weight:600;text-align:left;
+    padding:8px 10px;border:1px solid var(--border);white-space:nowrap;}
+  .dup-table td{padding:8px 10px;border:1px solid var(--border);color:var(--text);white-space:nowrap;}
+  .dup-table td.sr{color:var(--faint);width:52px;}
+  .dup-table td.hit{background:rgba(196,85,77,.20);color:#f0a79f;font-weight:600;}
   .btn-dup{background:#2a1518;border-color:#7a3b36;color:#e79a93;}
   .btn-dup:hover{border-color:var(--red);color:#f0a79f;}
   @keyframes dupBlink{
@@ -997,6 +1006,7 @@ function render(){
   else if(state.step===4) body = renderDownload();
   else if(state.step===7) body = renderDuplicates();
 
+  app.classList.toggle('wide', state.step===7);
   const title = state.fileName ? (CONTEXTS[state.context]||CONTEXTS.student).title : 'Data Formatter';
 
   app.innerHTML =
@@ -1196,9 +1206,9 @@ function dupSets(){
 
   const sets = [
     {label:'Enrollment No.', groups: dupGroups(enrollCols, normEnroll),  show:'key'},
+    {label:'Name',           groups: dupGroups(nameCols,   dupKeyName),   show:'raw'},
     {label:'Mobile',         groups: dupGroups(mobileCols, dupKeyMobile), show:'key'},
     {label:'Email',          groups: dupGroups(emailCols,  dupKeyEmail),  show:'raw'},
-    {label:'Name',           groups: dupGroups(nameCols,   dupKeyName),   show:'raw'},
   ];
   return {sets, total: sets.reduce((a,s)=>a+s.groups.length,0)};
 }
@@ -1207,6 +1217,50 @@ function openDuplicates(){
   state.dupSeen = true;      // looked at once — stop the blink
   state.step = 7;
   render();
+}
+
+/* the six columns worth seeing when checking a duplicate */
+function dupTableFields(){
+  const pick = m => state.outputCols.filter(c=>m(norm(c.name)));
+  const defs = [
+    {label:'Enrollment No.', cols: pick(n=>n.includes('enrollment')||n.includes('enroll')||n.includes('grno')).slice(0,1), key:normEnroll},
+    {label:'Name',           cols: pick(n=>n.includes('name')),                                                            key:dupKeyName},
+    {label:'Mobile',         cols: pick(n=>n.includes('mobile')||n.includes('mob')||n.includes('phone')||n.includes('contact')).slice(0,1), key:dupKeyMobile},
+    {label:'Email',          cols: pick(n=>n.includes('email')||n.includes('mail')).slice(0,1),                            key:dupKeyEmail},
+    {label:'Department',     cols: pick(n=>n.includes('degree')||n.includes('department')||n.includes('branch')||n.includes('course')).slice(0,1), key:norm, noHit:true},
+  ];
+  return defs.filter(f=>f.cols.length);
+}
+
+function dupCellText(row, cols){
+  return cols.map(c=>row[c.id]).filter(v=>String(v??'').trim()).join(' ').trim();
+}
+
+/* which of the identity fields hold the same value across every row of this group */
+function dupHits(group){
+  const fields = dupTableFields();
+  const rows = group.rows.map(sr=>state.outputRows[sr-1]).filter(Boolean);
+  return fields.map(f=>{
+    if(f.noHit) return false;                            // shared department is not a duplicate signal
+    const keys = rows.map(r=>f.key(dupCellText(r, f.cols)));
+    return keys.every(k=>k) && new Set(keys).size===1;
+  });
+}
+
+/* one group rendered as a small sheet; whatever matched across the rows is highlighted */
+function dupTable(group){
+  const fields = dupTableFields();
+  if(!fields.length) return '';
+  const rows = group.rows.map(sr=>({sr, data: state.outputRows[sr-1]})).filter(r=>r.data);
+  const hit = dupHits(group);
+
+  return '<div class="dup-scroll"><table class="dup-table">'+
+    '<thead><tr><th>Sr.</th>'+fields.map(f=>'<th>'+f.label+'</th>').join('')+'</tr></thead><tbody>'+
+    rows.map(r=>'<tr><td class="sr">'+r.sr+'</td>'+
+      fields.map((f,i)=>'<td'+(hit[i]?' class="hit"':'')+'>'+
+        (esc(dupCellText(r.data, f.cols))||'&mdash;')+'</td>').join('')+
+      '</tr>').join('')+
+    '</tbody></table></div>';
 }
 
 function renderDuplicates(){
@@ -1224,11 +1278,11 @@ function renderDuplicates(){
     html += '<div class="dup-label">'+s.label+' &middot; '+s.groups.length+
       (s.groups.length===1?' group':' groups')+'</div>';
     html += s.groups.map(g=>
-      '<div class="count-row"><div class="count-label">'+esc(s.show==='key' ? g.key : g.raw)+
-      '</div><div class="count-value wide">Sr. '+g.rows.join(', ')+'</div></div>').join('');
+      '<div class="dup-key">'+esc(s.show==='key' ? g.key : g.raw)+' &middot; Sr. '+g.rows.join(', ')+'</div>'+
+      dupTable(g)).join('');
   });
   return html+
-    '<div class="hint">Nothing was removed — these are only flagged for you to check. Sr. numbers match the downloaded sheet.</div>'+
+    '<div class="hint">Highlighted cells are the values that matched. Nothing was removed &mdash; Sr. numbers match the downloaded sheet.</div>'+
     '<button class="btn" onclick="state.step=4; render();">Back to download</button>';
 }
 
