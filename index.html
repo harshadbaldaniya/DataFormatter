@@ -72,6 +72,8 @@
   .dup-table td{padding:8px 10px;border:1px solid var(--border);color:var(--text);white-space:nowrap;}
   .dup-table td.sr{color:var(--faint);width:52px;}
   .dup-table td.hit{background:rgba(196,85,77,.20);color:#f0a79f;font-weight:600;}
+  .dup-table tr.row-out td{background:rgba(196,85,77,.16);}
+  .dup-table tr.row-na td{background:rgba(110,190,120,.14);}
   .btn-dup{background:#2a1518;border-color:#7a3b36;color:#e79a93;}
   .btn-dup:hover{border-color:var(--red);color:#f0a79f;}
   @keyframes dupBlink{
@@ -148,8 +150,9 @@ const state = {
   permanentFormat: null, mode:null, modeChoice:null,
   currentFormat: [],
   outputCols: [],          // [{id, name}]  — output is keyed by id, not name
+  outputStatus: [],        // per output row: Placed / Freeze / Debarred / Eligible / NA
   outputRows: [],          // [{ <colId>: value }]
-  submitted:false, dupSeen:false,
+  submitted:false, dupSeen:false, statusSeen:false,
   filterApplied:false, masterFileName:null, masterHeaders:[], masterRows:[], filterSummary:null,
   statusKey:null, matchedKey:null,
   sheetNames:[], activeSheet:null,
@@ -312,9 +315,9 @@ function resetAll(){
   state.step=1; state.fileName=null; state.headers=[]; state.rows=[];
   state.context='student'; state.companyName=''; state.attendanceDate='';
   state.mode=null; state.modeChoice=null; state.currentFormat=[];
-  state.outputCols=[]; state.outputRows=[]; state.submitted=false; state.dupSeen=false;
+  state.outputCols=[]; state.outputRows=[]; state.outputStatus=[]; state.submitted=false; state.dupSeen=false;
   state.filterApplied=false; state.masterFileName=null; state.masterHeaders=[]; state.masterRows=[];
-  state.filterSummary=null; state.statusKey=null; state.matchedKey=null;
+  state.filterSummary=null; state.statusKey=null; state.matchedKey=null; state.statusSeen=false;
   state.sheetNames=[]; state.activeSheet=null;
   pendingWB=null; pendingKind=null; pendingFile=null; pendingCtx=null;
   render();
@@ -332,9 +335,6 @@ function normalizeStatus(raw){
   if(v.includes('placed')) return 'Placed';
   return 'Eligible';
 }
-function nameTokens(name){
-  return (name||'').toLowerCase().replace(/[^a-z\s]/g,' ').split(/\s+/).filter(Boolean);
-}
 function normPhone(v){
   const d = String(v??'').replace(/\D/g,'');
   if(!d) return null;
@@ -344,40 +344,26 @@ function normEnroll(v){
   const s = String(v??'').trim().replace(/^['`\s]+/,'').replace(/\s+/g,'').toUpperCase();
   return s || null;
 }
-function buildFullName(row, firstCol, middleCol, lastCol, nameCol){
-  if(firstCol || middleCol || lastCol){
-    return [row[firstCol], row[middleCol], row[lastCol]].filter(Boolean).join(' ');
-  }
-  return nameCol ? (row[nameCol]||'') : '';
-}
 
 function runMasterFilter(){
+  // matching is by enrollment and mobile only. names are not identifiers —
+  // three different students can all be "Diya Shah", and a wrong Placed hides
+  // an eligible student from the drive. no match at all is safer: it becomes NA.
   const mh = state.masterHeaders;
   const enrollColM = findCol(mh, ['enrollment','enroll','grno']);
   const mobileColM = findCol(mh, ['mobile','mob','phone','contact']);
   const statusColM = findCol(mh, ['status']);
-  const firstColM  = findCol(mh, ['firstname']);
-  const middleColM = findCol(mh, ['middlename']);
-  const lastColM   = findCol(mh, ['lastname','surname']);
-  const nameColM   = (!firstColM && !lastColM) ? findCol(mh, ['name']) : null;
 
   const byEnroll = new Map(), byMobile = new Map();
-  const nameEntries = [];
   state.masterRows.forEach(r=>{
     const status = statusColM ? normalizeStatus(r[statusColM]) : 'Eligible';
     if(enrollColM){ const k = normEnroll(r[enrollColM]); if(k) byEnroll.set(k, status); }
     if(mobileColM){ const k = normPhone(r[mobileColM]); if(k) byMobile.set(k, status); }
-    const tokens = nameTokens(buildFullName(r, firstColM, middleColM, lastColM, nameColM));
-    if(tokens.length) nameEntries.push({tokenSet:new Set(tokens), status});
   });
 
   const sh = state.headers;
   const enrollColS = findCol(sh, ['enrollment','enroll','grno']);
   const mobileColS = findCol(sh, ['mobile','mob','phone','contact']);
-  const firstColS  = findCol(sh, ['firstname']);
-  const middleColS = findCol(sh, ['middlename']);
-  const lastColS   = findCol(sh, ['lastname','surname']);
-  const nameColS   = (!firstColS && !lastColS) ? findCol(sh, ['name']) : null;
 
   const statusKey  = uniqueKey(state.headers, 'Status');
   const matchedKey = uniqueKey(state.headers.concat([statusKey]), 'Matched By');
@@ -395,17 +381,6 @@ function runMasterFilter(){
       const v = normPhone(row[mobileColS]);
       if(v && byMobile.has(v)) result = {status:byMobile.get(v), matchedBy:'Mobile'};
     }
-    if(!result){
-      const studentTokens = nameTokens(buildFullName(row, firstColS, middleColS, lastColS, nameColS));
-      if(studentTokens.length){
-        const need = Math.min(2, studentTokens.length);
-        const matches = nameEntries.filter(e=>studentTokens.filter(t=>e.tokenSet.has(t)).length >= need);
-        const distinct = new Set(matches.map(m=>m.status));
-        if(matches.length===1) result = {status:matches[0].status, matchedBy:'Name'};
-        else if(matches.length>1 && distinct.size===1) result = {status:matches[0].status, matchedBy:'Name'};
-        else if(matches.length>1) result = {status:'NA', matchedBy:'Name-Ambiguous'};
-      }
-    }
     if(!result) result = {status:'NA', matchedBy:'None'};
     row[statusKey]  = result.status;
     row[matchedKey] = result.matchedBy;
@@ -415,6 +390,7 @@ function runMasterFilter(){
   state.headers.push(statusKey, matchedKey);
   state.filterApplied = true;
   state.filterSummary = summary;
+  state.statusSeen = false;        // new master sheet re-arms the blink
 }
 
 function removeMaster(){
@@ -424,7 +400,7 @@ function removeMaster(){
   }
   state.masterFileName=null; state.masterHeaders=[]; state.masterRows=[];
   state.filterApplied=false; state.filterSummary=null;
-  state.statusKey=null; state.matchedKey=null;
+  state.statusKey=null; state.matchedKey=null; state.statusSeen=false;
   render();
 }
 
@@ -745,6 +721,8 @@ function sortRowsForOutput(rows){
 function buildOutput(){
   state.dupSeen = false;                 // a fresh export re-arms the blink
   const rows = sortRowsForOutput(state.rows);
+  state.outputStatus = (state.filterApplied && state.statusKey)
+    ? rows.map(r=>r[state.statusKey]||'') : [];
   state.outputCols = state.currentFormat.map(c=>({id:c.id, name:c.name}));
   state.outputRows = rows.map((r,ri)=>{
     const o = {};
@@ -820,13 +798,24 @@ function fitColumns(ws, cols, rows){
   });
 }
 
+const ROW_RED = 'FFFFC7CE';    // Placed / Freeze / Debarred — pull these out
+const ROW_GREEN = 'FFC6EFCE';  // NA — not found in the master sheet, check by hand
+
+function statusFill(status){
+  if(status==='Placed'||status==='Freeze'||status==='Debarred') return ROW_RED;
+  if(status==='NA') return ROW_GREEN;
+  return null;                 // Eligible stays plain
+}
+
 function writeDataRows(ws, cols, rows, startRow){
   rows.forEach((r,ri)=>{
+    const fill = statusFill(state.outputStatus[ri]);
     cols.forEach((c,ci)=>{
       const cell = ws.getCell(startRow+ri, ci+1);
       cell.value = toCell(r[c.id], c.name);
       cell.alignment = {horizontal:'center', vertical:'middle'};
       if(typeof cell.value === 'number' && colNumberKind(c.name)==='int') cell.numFmt = '0';
+      if(fill) cell.fill = {type:'pattern', pattern:'solid', fgColor:{argb:fill}};
     });
   });
 }
@@ -1008,8 +997,9 @@ function render(){
   else if(state.step===3) body = renderColumns();
   else if(state.step===4) body = renderDownload();
   else if(state.step===7) body = renderDuplicates();
+  else if(state.step===8) body = renderStatusReview();
 
-  app.classList.toggle('wide', state.step===7);
+  app.classList.toggle('wide', state.step===7 || state.step===8);
   const title = state.fileName ? (CONTEXTS[state.context]||CONTEXTS.student).title : 'Data Formatter';
 
   app.innerHTML =
@@ -1075,10 +1065,11 @@ function renderFilter(){
           Object.entries(state.filterSummary).map(([k,v])=>
             '<div class="count-row"><div class="count-label">'+esc(k)+'</div><div class="count-value">'+v+'</div></div>').join('')
         : '')+
-      '<button class="btn btn-gold" onclick="state.step=2; render();">Continue</button>';
+      '<button class="btn btn-gold" onclick="state.step=2; render();">Continue</button>'+
+      statusReviewButton();
   }
   return '<div class="result-label">Check against master sheet? (optional)</div>'+
-    '<p style="color:var(--faint);font-size:12.5px;margin:0 0 16px;">Matches each student by Enrollment No., then Mobile No., then Name, and marks Placed / Debarred / Eligible / NA.</p>'+
+    '<p style="color:var(--faint);font-size:12.5px;margin:0 0 16px;">Matches each student by Enrollment No., then Mobile No., and marks Placed / Freeze / Debarred / Eligible / NA. No match at all becomes NA &mdash; names are never used, since two students can share one.</p>'+
     '<div class="dropzone" id="dzMaster" style="margin-top:6px;" tabindex="0"><span class="arrow">&#8595;</span></div>'+
     '<div class="upload-label" style="margin-bottom:20px;">Upload Master Sheet</div>'+
     '<input type="file" id="fiMaster" accept=".xlsx,.xls,.csv">'+
@@ -1264,6 +1255,69 @@ function dupTable(group){
         (esc(dupCellText(r.data, f.cols))||'&mdash;')+'</td>').join('')+
       '</tr>').join('')+
     '</tbody></table></div>';
+}
+
+/* ---------- status review (master-sheet result, before exporting) ---------- */
+/* everything that isn't cleanly Eligible: the rows worth a second look */
+function statusReviewRows(){
+  if(!state.filterApplied || !state.statusKey) return [];
+  return state.rows
+    .map(r=>({status:String(r[state.statusKey]||''), matchedBy:String(r[state.matchedKey]||''), data:r}))
+    .filter(x=>x.status && x.status!=='Eligible');
+}
+
+function statusReviewButton(){
+  const n = statusReviewRows().length;
+  if(!state.filterApplied) return '';
+  return '<button class="btn btn-dup'+((n && !state.statusSeen) ? ' blink' : '')+
+    '" onclick="openStatusReview()">Status Review'+(n ? ' ('+n+')' : '')+'</button>';
+}
+
+function openStatusReview(){
+  state.statusSeen = true;      // looked at once — stop the blink
+  state.step = 8;
+  render();
+}
+
+/* same six columns as the duplicate view, plus what the master sheet said */
+function statusReviewFields(){
+  const pick = m => state.headers.filter(h=>m(norm(h)));
+  const defs = [
+    {label:'Enrollment No.', cols: pick(n=>n.includes('enrollment')||n.includes('enroll')||n.includes('grno')).slice(0,1)},
+    {label:'Name',           cols: pick(n=>n.includes('name')&&!n.includes('company')).slice(0,3)},
+    {label:'Mobile',         cols: pick(n=>n.includes('mobile')||n.includes('mob')||n.includes('phone')||n.includes('contact')).slice(0,1)},
+    {label:'Email',          cols: pick(n=>n.includes('email')||n.includes('mail')).slice(0,1)},
+    {label:'Department',     cols: pick(n=>n.includes('degree')||n.includes('department')||n.includes('branch')||n.includes('course')).slice(0,1)},
+  ];
+  return defs.filter(f=>f.cols.length);
+}
+
+function renderStatusReview(){
+  const rows = statusReviewRows();
+  let html = '<span class="back" onclick="state.step=5; render();">&larr; Back</span>'+
+    '<div class="col-heading" style="margin-top:0;">Status Review</div>';
+
+  if(!rows.length){
+    return html+'<div class="count-row"><div class="count-label" style="color:var(--faint);">Everyone came back Eligible</div></div>'+
+      '<button class="btn" onclick="state.step=5; render();">Back</button>';
+  }
+
+  const fields = statusReviewFields();
+  html += '<div class="dup-scroll"><table class="dup-table">'+
+    '<thead><tr>'+fields.map(f=>'<th>'+f.label+'</th>').join('')+
+    '<th>Status</th><th>Matched By</th></tr></thead><tbody>'+
+    rows.map(x=>{
+      const cls = x.status==='NA' ? ' class="row-na"' : ' class="row-out"';
+      return '<tr'+cls+'>'+
+        fields.map(f=>'<td>'+(esc(f.cols.map(c=>x.data[c]).filter(v=>String(v??'').trim()).join(' ').trim())||'&mdash;')+'</td>').join('')+
+        '<td>'+esc(x.status)+'</td><td>'+esc(x.matchedBy)+'</td></tr>';
+    }).join('')+
+    '</tbody></table></div>';
+
+  return html+
+    '<div class="hint">Red rows were found in the master sheet as Placed, Freeze or Debarred. '+
+    'Green rows were not found at all &mdash; check those by hand. The downloaded sheet uses the same colours.</div>'+
+    '<button class="btn" onclick="state.step=5; render();">Back</button>';
 }
 
 function renderDuplicates(){
