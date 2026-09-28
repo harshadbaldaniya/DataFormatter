@@ -326,6 +326,9 @@ function resetAll(){
 function normalizeStatus(raw){
   const v = (raw||'').toString().trim().toLowerCase();
   if(v.includes('debar')) return 'Debarred';
+  // freeze is checked before placed: a frozen student was placed first, then turned the offer down,
+  // so a cell reading "Placed - Freeze" must land on Freeze
+  if(v.includes('freez')) return 'Freeze';
   if(v.includes('placed')) return 'Placed';
   return 'Eligible';
 }
@@ -381,7 +384,7 @@ function runMasterFilter(){
   state.statusKey = statusKey;
   state.matchedKey = matchedKey;
 
-  const summary = {Placed:0, Debarred:0, Eligible:0, NA:0};
+  const summary = {Placed:0, Freeze:0, Debarred:0, Eligible:0, NA:0};
   state.rows.forEach(row=>{
     let result = null;
     if(enrollColS){
