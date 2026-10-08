@@ -145,6 +145,7 @@
    ============================================================ */
 const state = {
   step: 1,
+  countReturnStep: 2,
   fileName:null, headers:[], rows:[], context:'student',
   companyName:'', attendanceDate:'',
   permanentFormat: null, mode:null, modeChoice:null,
@@ -313,6 +314,7 @@ function uniqueKey(existing, base){
    ============================================================ */
 function resetAll(){
   state.step=1; state.fileName=null; state.headers=[]; state.rows=[];
+  state.countReturnStep=2;
   state.context='student'; state.companyName=''; state.attendanceDate='';
   state.mode=null; state.modeChoice=null; state.currentFormat=[];
   state.outputCols=[]; state.outputRows=[]; state.outputStatus=[]; state.submitted=false; state.dupSeen=false;
@@ -751,6 +753,19 @@ function buildOutput(){
   });
 }
 
+function showCounts(returnStep){
+  if(!state.currentFormat.length){ alert('Add at least one column before showing counts.'); return; }
+  state.countReturnStep = returnStep;
+  buildOutput();
+  state.step = 9;
+  render();
+}
+
+function showPermanentCounts(){
+  state.currentFormat = buildCurrentFormat();
+  showCounts(2);
+}
+
 async function submitCols(){
   if(!state.currentFormat.length){ alert('Add at least one column before exporting.'); return; }
   buildOutput();
@@ -998,6 +1013,7 @@ function render(){
   else if(state.step===4) body = renderDownload();
   else if(state.step===7) body = renderDuplicates();
   else if(state.step===8) body = renderStatusReview();
+  else if(state.step===9) body = renderCountsOnly();
 
   app.classList.toggle('wide', state.step===7 || state.step===8);
   const title = state.fileName ? (CONTEXTS[state.context]||CONTEXTS.student).title : 'Data Formatter';
@@ -1103,6 +1119,9 @@ function renderChoice(){
       ' onchange="selectPermanent()"><span>'+(CONTEXTS[state.context]||CONTEXTS.student).radio+'</span></label>'+
     '<label class="radio-row'+cls+'"><input type="radio" name="m" '+dis+' '+(state.modeChoice==='edit'?'checked':'')+
       ' onchange="selectEdit()"><span>Edit Column</span></label>'+
+    (state.context==='student'
+      ? '<button class="btn" onclick="showPermanentCounts()">Show Count</button>'
+      : '')+
     '<button class="btn btn-gold" id="continueBtn" '+((state.modeChoice==='edit'&&ok)?'':'disabled')+
       ' onclick="proceedChoice()">Continue</button>';
 }
@@ -1135,13 +1154,16 @@ function renderColumns(){
     '<div class="add-row"><input id="newColName" placeholder="Add Column Name" onkeydown="if(event.key===\'Enter\') addCol();">'+
     '<button class="icon-btn" onclick="addCol()">+</button></div>'+
     '<button class="btn btn-ghost btn-sm" onclick="addNameConcat()">+ Add "Name" (First + Middle + Last combined)</button>'+
+    (state.context==='student'
+      ? '<button class="btn" onclick="showCounts(3)">Show Count</button>'
+      : '')+
     '<button class="btn btn-gold" onclick="submitCols()">Export</button>';
 }
 
 function countsBy(matcher){
   const col = state.outputCols.find(c=>matcher(norm(c.name)));
   if(!col) return null;
-  const counts = {};
+  const counts = Object.create(null);
   state.outputRows.forEach(r=>{
     const v = (r[col.id]||'').toString().trim() || '(blank)';
     counts[v] = (counts[v]||0)+1;
@@ -1155,6 +1177,21 @@ function countBlock(heading, data){
     Object.entries(data.counts).map(([k,v])=>
       '<div class="count-row"><div class="count-label">'+esc(k)+'</div><div class="count-value">'+v+'</div></div>').join('')+
     '<div class="count-row total"><div class="count-label">Total</div><div class="count-value">'+total+'</div></div>';
+}
+
+function renderCountsOnly(){
+  const dc = countsBy(n=>n.includes('degree')||n.includes('department')||n.includes('branch')||n.includes('course'));
+  const jc = countsBy(n=>n.includes('jobprofile')||n.includes('jobtitle')||n.includes('jobrole')||(n.includes('job')&&n.includes('profile'))||n.includes('position'));
+  const missing = [];
+  if(!dc) missing.push('Department');
+  if(!jc) missing.push('Job Profile');
+  return '<div class="result-label" style="text-align:center;">Count Summary</div>'+
+    countBlock('Department Wise Count:', dc)+
+    countBlock('Job Profile Wise Count:', jc)+
+    (missing.length
+      ? '<p class="hint">Could not find a '+missing.join(' or ')+' column in this format.</p>'
+      : '')+
+    '<button class="btn" onclick="state.step=state.countReturnStep; render();">Back</button>';
 }
 
 /* ---------- possible duplicates (report only — nothing is removed) ---------- */
