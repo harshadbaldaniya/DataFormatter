@@ -1097,7 +1097,7 @@ function renderChoice(){
   let meta = '';
   if(needsCompany()){
     meta += '<div class="result-label">Company name</div>'+
-      '<input class="field" id="companyNameInput" placeholder="e.g. La Net Team" value="'+esc(state.companyName||'')+'" oninput="onMetaInput()">';
+      '<input class="field" id="companyNameInput" placeholder="Enter Company Name" value="'+esc(state.companyName||'')+'" oninput="onMetaInput()">';
     if(state.context==='contact'){
       meta += '<div class="result-label">Each contact is saved as:</div>'+
         '<div class="preview" id="namePreview">'+esc(contactPreview())+'</div>';
