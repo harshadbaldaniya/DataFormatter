@@ -46,6 +46,8 @@
   .radio-row span{font-size:14px;}
   .radio-row.is-disabled{opacity:.4;cursor:not-allowed;}
   .radio-row.is-disabled:hover{border-color:var(--border);}
+  .btn.result-action-btn{margin:0 0 10px;padding:9px 12px;min-height:36px;font-size:13.5px;font-weight:400;
+    font-family:var(--font);text-align:center;}
 
   /* text inputs */
   .field{width:100%;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
@@ -611,9 +613,9 @@ async function selectPermanent(){
   render();
   await runExport();
 }
-function selectEdit(){ state.modeChoice = 'edit'; render(); }
-function proceedChoice(){
-  if(state.modeChoice!=='edit' || !metaOk()) return;
+function selectEdit(){
+  if(!metaOk()) return;
+  state.modeChoice = 'edit';
   state.mode = 'edit';
   state.currentFormat = buildCurrentFormat();
   state.submitted = false;
@@ -628,15 +630,12 @@ function onMetaInput(){
   if(c) state.companyName = c.value;
   if(d) state.attendanceDate = d.value;
   const ok = metaOk();
-  document.querySelectorAll('input[name="m"]').forEach(r=>{
-    r.disabled = !ok;
-    const row = r.closest('.radio-row');
-    if(row) row.classList.toggle('is-disabled', !ok);
-  });
+  const permanent = document.getElementById('permanentFormatBtn');
+  if(permanent) permanent.disabled = !ok;
+  const edit = document.getElementById('editColumnBtn');
+  if(edit) edit.disabled = !ok;
   const hint = document.getElementById('metaHint');
   if(hint) hint.style.display = ok ? 'none' : 'block';
-  const cont = document.getElementById('continueBtn');
-  if(cont) cont.disabled = !(ok && state.modeChoice==='edit');
   const prev = document.getElementById('namePreview');
   if(prev) prev.textContent = contactPreview();
 }
@@ -1112,18 +1111,15 @@ function renderChoice(){
       (needsDate() ? 'company name and date' : 'company name')+' to continue.</div>';
   }
   const dis = ok ? '' : 'disabled';
-  const cls = ok ? '' : ' is-disabled';
   return meta+
     '<div class="result-label">Result:</div>'+
-    '<label class="radio-row'+cls+'"><input type="radio" name="m" '+dis+' '+(state.modeChoice==='permanent'?'checked':'')+
-      ' onchange="selectPermanent()"><span>'+(CONTEXTS[state.context]||CONTEXTS.student).radio+'</span></label>'+
-    '<label class="radio-row'+cls+'"><input type="radio" name="m" '+dis+' '+(state.modeChoice==='edit'?'checked':'')+
-      ' onchange="selectEdit()"><span>Edit Column</span></label>'+
+    '<button type="button" class="btn result-action-btn" id="permanentFormatBtn" '+dis+
+      ' onclick="selectPermanent()">'+(CONTEXTS[state.context]||CONTEXTS.student).radio+'</button>'+
+    '<button type="button" class="btn result-action-btn" id="editColumnBtn" '+dis+
+      ' onclick="selectEdit()">Edit Column</button>'+
     (state.context==='student'
-      ? '<button class="btn" onclick="showPermanentCounts()">Show Count</button>'
-      : '')+
-    '<button class="btn btn-gold" id="continueBtn" '+((state.modeChoice==='edit'&&ok)?'':'disabled')+
-      ' onclick="proceedChoice()">Continue</button>';
+      ? '<button type="button" class="btn result-action-btn" onclick="showPermanentCounts()">Count Summary</button>'
+      : '');
 }
 
 function renderColumns(){
@@ -1383,14 +1379,14 @@ function renderDownload(){
   const noun = state.context==='contact' ? 'contacts saved' : 'students formatted';
   const d = dupSets();
   const dupBtn = d
-    ? '<button class="btn btn-dup'+((d.total && !state.dupSeen) ? ' blink' : '')+'" onclick="openDuplicates()">'+
+    ? '<button class="btn result-action-btn btn-dup'+((d.total && !state.dupSeen) ? ' blink' : '')+'" onclick="openDuplicates()">'+
       'Possible Duplicates'+(d.total ? ' ('+d.total+')' : '')+'</button>'
     : '';
   return '<span class="back" onclick="state.step = 2; render();">&larr; Back</span>'+
     '<div class="result-label" style="text-align:center;">'+state.outputRows.length+' '+noun+'</div>'+
-    '<button class="btn btn-gold" onclick="redownload()">Download again</button>'+
+    '<button class="btn result-action-btn btn-gold" onclick="redownload()">Download again</button>'+
     dupBtn+
-    '<button class="btn" onclick="resetAll()">Start over</button>'+
+    '<button class="btn result-action-btn" onclick="resetAll()">Start over</button>'+
     countBlock('Department Wise Count:', dc)+
     countBlock('Job Profile Wise Count:', jc);
 }
