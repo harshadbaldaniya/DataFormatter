@@ -1154,9 +1154,6 @@ function renderColumns(){
     '<div class="add-row"><input id="newColName" placeholder="Add Column Name" onkeydown="if(event.key===\'Enter\') addCol();">'+
     '<button class="icon-btn" onclick="addCol()">+</button></div>'+
     '<button class="btn btn-ghost btn-sm" onclick="addNameConcat()">+ Add "Name" (First + Middle + Last combined)</button>'+
-    (state.context==='student'
-      ? '<button class="btn" onclick="showCounts(3)">Show Count</button>'
-      : '')+
     '<button class="btn btn-gold" onclick="submitCols()">Export</button>';
 }
 
