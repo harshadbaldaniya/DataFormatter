@@ -202,7 +202,7 @@ function defaultFormatFor(ctx){
 }
 
 /* which contexts ask for a company name / a date */
-function needsCompany(){ return state.context==='attendance' || state.context==='contact'; }
+function needsCompany(){ return true; }   // every flow names its file after the company
 function needsDate(){ return state.context==='attendance'; }
 function metaOk(){
   if(needsCompany() && !String(state.companyName||'').trim()) return false;
@@ -512,6 +512,8 @@ function loadMainSheet(file, wb, sheetName, context){
     return;
   }
   state.context = context || 'student';
+  if(!String(state.companyName||'').trim())
+    state.companyName = detectCompany(file.name) || (state.context==='contact' ? lastCompany() : '');
   state.fileName = file.name;
   state.activeSheet = sheetName;
   state.headers = headers;
@@ -861,6 +863,36 @@ function formatDateDMY(iso){
 
 function baseName(){ return (state.fileName||'data').replace(/\.[^.]+$/,''); }
 
+/* "<Company> <Label>_<count>.<ext>" — company as typed, minus characters Windows forbids */
+function outName(label, ext){
+  const company = String(state.companyName||'').replace(/[\/\\:*?"<>|\x00-\x1f]/g,'').replace(/\s+/g,' ').trim();
+  return (company ? company+' ' : '')+label+'_'+state.outputRows.length+'.'+ext;
+}
+
+/* remember the Student Data company so Contact CSV can prefill it after Start over / reload */
+const LAST_COMPANY_KEY = 'lj_last_company';
+function rememberCompany(){
+  try{ localStorage.setItem(LAST_COMPANY_KEY, String(state.companyName||'').trim()); }catch(e){}
+}
+function lastCompany(){
+  try{ return localStorage.getItem(LAST_COMPANY_KEY) || ''; }catch(e){ return ''; }
+}
+
+/* guess the company from the upload's file name; the field stays editable.
+   "Radixweb Registration Form (Responses).xlsx" -> "Radixweb"
+   "Radixweb Student Data_139.xlsx"             -> "Radixweb"   */
+const COMPANY_NOISE = ['registration','register','form','forms','responses','response','interest','interested',
+  'drive','placement','placements','campus','recruitment','hiring','student','students','data','contact','contacts',
+  'csv','attendance','sheet','formatted','google','final','copy','list','details','job','jobs','iipc','ljku','lju'];
+function detectCompany(fileName){
+  const words = String(fileName||'').replace(/\.[^.]+$/,'')
+    .replace(/[()\[\]{}_\-]+/g,' ').split(/\s+/).filter(Boolean)
+    .filter(w => !COMPANY_NOISE.includes(w.toLowerCase()) && !/^\d+$/.test(w));
+  const out = [];
+  words.forEach(w=>{ if(!out.length || out[out.length-1].toLowerCase()!==w.toLowerCase()) out.push(w); });
+  return out.join(' ');
+}
+
 async function downloadFile(){
   if(!state.outputRows.length) return;
   if(state.context==='attendance') await downloadAttendanceXlsx(baseName());
@@ -906,7 +938,8 @@ async function downloadStudentXlsx(base){
   borderAll(ws, 3 + state.outputRows.length, colCount);
   ws.views = [{state:'frozen', ySplit:3}];
 
-  saveBlob(await wb.xlsx.writeBuffer(), base + '-formatted.xlsx');
+  rememberCompany();
+  saveBlob(await wb.xlsx.writeBuffer(), outName('Student Data','xlsx'));
 }
 
 async function downloadAttendanceXlsx(base){
@@ -961,7 +994,7 @@ async function downloadAttendanceXlsx(base){
   borderAll(ws, 4 + state.outputRows.length, colCount);
   ws.views = [{state:'frozen', ySplit:4}];
 
-  saveBlob(await wb.xlsx.writeBuffer(), base + '-attendance.xlsx');
+  saveBlob(await wb.xlsx.writeBuffer(), outName('Attendance','xlsx'));
 }
 
 /* ============================================================
@@ -994,8 +1027,7 @@ function downloadContactCsv(){
     const full = nameCols.map(c=>r[c.id]).filter(v=>String(v??'').trim()).join(' ').trim();
     return [prefix ? prefix+' '+full : full, r[mobileCol.id] ?? ''];
   });
-  const slug = prefix ? prefix.replace(/[^\w\s-]/g,'').trim().replace(/\s+/g,'-')+'-' : '';
-  downloadCSV(slug+baseName()+'-contacts.csv', ['name','mobile'], rows2d);
+  downloadCSV(outName('Contact CSV','csv'), ['name','mobile'], rows2d);
 }
 
 /* ============================================================
