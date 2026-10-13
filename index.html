@@ -1153,6 +1153,7 @@ function runShortlist(){
   if(!names.length){ alert('Add at least one name, one per line.'); return; }
   state.shortlistText = names.join('\n');
   state.shortlistResult = slMatch(names);
+  state.step = 11;
   render();
 }
 
@@ -1338,7 +1339,6 @@ if(typeof document!=='undefined' && document.addEventListener){
 
 function renderShortlist(){
   const company = String(state.companyName||'').trim();
-  const res = state.shortlistResult;
   let html = '<span class="back" onclick="state.step=2; render();">&larr; Back</span>'+
     '<div class="col-heading" style="margin-top:0;">'+esc(company)+' Shortlist</div>'+
     '<div class="upload-label">Photo / screenshot of the shortlist</div>'+
@@ -1347,12 +1347,19 @@ function renderShortlist(){
     '<div class="hint" style="text-align:center;margin:-4px 0 14px;">or press Ctrl + V to paste a screenshot</div>'+
     '<div class="preview" id="ocrMsg" style="white-space:normal;margin:0 0 14px;'+(state.ocrMsg?'':'display:none;')+'">'+esc(state.ocrMsg||'')+'</div>'+
     '<div class="result-label">Shortlist names (one per line)</div>'+
-    '<textarea class="field sl-names" id="slNames" rows="8" placeholder="Harpal Patel&#10;Dhruv Patel&#10;…" oninput="onShortlistInput()">'+
+    '<textarea class="field sl-names" id="slNames" rows="8" placeholder="Enter Student Name" oninput="onShortlistInput()">'+
       esc(state.shortlistText||'')+'</textarea>'+
     '<button class="btn btn-gold" id="slFindBtn" onclick="runShortlist()"'+(state.ocrBusy?' disabled':'')+'>Find</button>';
+  return html;
+}
 
+function renderShortlistResult(){
+  const company = String(state.companyName||'').trim();
+  const res = state.shortlistResult;
+  let html = '<span class="back" onclick="state.step=10; render();">&larr; Back</span>'+
+    '<div class="col-heading" style="margin-top:0;">'+esc(company)+' Shortlist Result</div>';
   if(res){
-    html += '<div class="col-heading">Result</div>'+
+    html +=
       '<div class="count-row"><div class="count-label">Matched</div><div class="count-value">'+res.counts.matched+'</div></div>'+
       '<div class="count-row"><div class="count-label">Possible</div><div class="count-value">'+res.counts.possible+'</div></div>'+
       '<div class="count-row"><div class="count-label">Not found</div><div class="count-value">'+res.counts.notfound+'</div></div>'+
@@ -1385,8 +1392,9 @@ function render(){
   else if(state.step===8) body = renderStatusReview();
   else if(state.step===9) body = renderCountsOnly();
   else if(state.step===10) body = renderShortlist();
+  else if(state.step===11) body = renderShortlistResult();
 
-  app.classList.toggle('wide', state.step===7 || state.step===8 || (state.step===10 && !!state.shortlistResult));
+  app.classList.toggle('wide', state.step===7 || state.step===8 || state.step===11);
   const title = state.fileName ? (CONTEXTS[state.context]||CONTEXTS.student).title : 'Data Formatter';
 
   app.innerHTML =
