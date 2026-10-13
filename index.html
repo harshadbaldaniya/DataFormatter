@@ -86,6 +86,7 @@
   @media (prefers-reduced-motion: reduce){ .btn-dup.blink{animation:none;} }
   .col-row input.name{width:100%;color:var(--text);}
   textarea.sl-names{resize:vertical;line-height:1.5;margin-bottom:0;}
+  .sl-result-title{text-align:center;font-size:17px;font-weight:600;color:var(--accent);margin:0 0 18px;}
   .col-row select.src{width:auto;min-width:0;flex:1;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
     padding:9px 8px;font-size:12px;color:var(--muted);font-family:var(--font);}
   .icon-btn{width:30px;height:30px;flex-shrink:0;border:1px solid var(--border);border-radius:var(--radius);
@@ -889,10 +890,20 @@ function lastCompany(){
 const COMPANY_NOISE = ['registration','register','form','forms','responses','response','interest','interested',
   'drive','placement','placements','campus','recruitment','hiring','student','students','data','contact','contacts',
   'csv','attendance','sheet','formatted','google','final','copy','list','details','job','jobs','iipc','ljku','lju'];
+/* a noise word, or noise words written together: "StudentData", "RegistrationForm" */
+function isCompanyNoise(word){
+  const w = String(word||'').toLowerCase();
+  if(!w) return false;
+  const ok = [true];
+  for(let i=1;i<=w.length;i++){
+    ok[i] = COMPANY_NOISE.some(n => n.length<=i && ok[i-n.length] && w.slice(i-n.length,i)===n);
+  }
+  return ok[w.length];
+}
 function detectCompany(fileName){
   const words = String(fileName||'').replace(/\.[^.]+$/,'')
     .replace(/[()\[\]{}_\-]+/g,' ').split(/\s+/).filter(Boolean)
-    .filter(w => !COMPANY_NOISE.includes(w.toLowerCase()) && !/^\d+$/.test(w));
+    .filter(w => !isCompanyNoise(w) && !/^\d+$/.test(w));
   const out = [];
   words.forEach(w=>{ if(!out.length || out[out.length-1].toLowerCase()!==w.toLowerCase()) out.push(w); });
   return out.join(' ');
@@ -1338,9 +1349,7 @@ if(typeof document!=='undefined' && document.addEventListener){
 }
 
 function renderShortlist(){
-  const company = String(state.companyName||'').trim();
   let html = '<span class="back" onclick="state.step=2; render();">&larr; Back</span>'+
-    '<div class="col-heading" style="margin-top:0;">'+esc(company)+' Shortlist</div>'+
     '<div class="upload-label">Photo / screenshot of the shortlist</div>'+
     '<div class="dropzone" id="dzShot" tabindex="0"'+(state.ocrBusy?' style="opacity:.4;"':'')+'><span class="arrow">&#8595;</span></div>'+
     '<input type="file" id="fiShot" accept="image/*">'+
@@ -1357,7 +1366,7 @@ function renderShortlistResult(){
   const company = String(state.companyName||'').trim();
   const res = state.shortlistResult;
   let html = '<span class="back" onclick="state.step=10; render();">&larr; Back</span>'+
-    '<div class="col-heading" style="margin-top:0;">'+esc(company)+' Shortlist Result</div>';
+    '<div class="sl-result-title">'+esc(company)+' Shortlist Result</div>';
   if(res){
     html +=
       '<div class="count-row"><div class="count-label">Matched</div><div class="count-value">'+res.counts.matched+'</div></div>'+
