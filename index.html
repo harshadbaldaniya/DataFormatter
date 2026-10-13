@@ -85,6 +85,7 @@
   .btn-dup.blink{animation:dupBlink 1s steps(1,end) infinite;}
   @media (prefers-reduced-motion: reduce){ .btn-dup.blink{animation:none;} }
   .col-row input.name{width:100%;color:var(--text);}
+  textarea.sl-names{resize:vertical;line-height:1.5;margin-bottom:0;}
   .col-row select.src{width:auto;min-width:0;flex:1;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
     padding:9px 8px;font-size:12px;color:var(--muted);font-family:var(--font);}
   .icon-btn{width:30px;height:30px;flex-shrink:0;border:1px solid var(--border);border-radius:var(--radius);
@@ -159,6 +160,7 @@ const state = {
   filterApplied:false, masterFileName:null, masterHeaders:[], masterRows:[], filterSummary:null,
   statusKey:null, matchedKey:null,
   sheetNames:[], activeSheet:null,
+  shortlistText:'', shortlistResult:null, ocrBusy:false, ocrMsg:'',
 };
 
 let pendingWB = null, pendingKind = null, pendingFile = null, pendingCtx = null;
@@ -323,6 +325,7 @@ function resetAll(){
   state.filterApplied=false; state.masterFileName=null; state.masterHeaders=[]; state.masterRows=[];
   state.filterSummary=null; state.statusKey=null; state.matchedKey=null; state.statusSeen=false;
   state.sheetNames=[]; state.activeSheet=null;
+  state.shortlistText=''; state.shortlistResult=null; state.ocrBusy=false; state.ocrMsg='';
   pendingWB=null; pendingKind=null; pendingFile=null; pendingCtx=null;
   render();
 }
@@ -636,6 +639,8 @@ function onMetaInput(){
   if(permanent) permanent.disabled = !ok;
   const edit = document.getElementById('editColumnBtn');
   if(edit) edit.disabled = !ok;
+  const sl = document.getElementById('shortlistBtn');
+  if(sl) sl.disabled = !ok;
   const hint = document.getElementById('metaHint');
   if(hint) hint.style.display = ok ? 'none' : 'block';
   const prev = document.getElementById('namePreview');
@@ -864,9 +869,9 @@ function formatDateDMY(iso){
 function baseName(){ return (state.fileName||'data').replace(/\.[^.]+$/,''); }
 
 /* "<Company> <Label>_<count>.<ext>" — company as typed, minus characters Windows forbids */
-function outName(label, ext){
+function outName(label, ext, count){
   const company = String(state.companyName||'').replace(/[\/\\:*?"<>|\x00-\x1f]/g,'').replace(/\s+/g,' ').trim();
-  return (company ? company+' ' : '')+label+'_'+state.outputRows.length+'.'+ext;
+  return (company ? company+' ' : '')+label+'_'+(count ?? state.outputRows.length)+'.'+ext;
 }
 
 /* remember the Student Data company so Contact CSV can prefill it after Start over / reload */
@@ -1031,6 +1036,340 @@ function downloadContactCsv(){
 }
 
 /* ============================================================
+   SHORTLIST  (Student Data only, step 10)
+   The company sends back names only. Each name is looked up in THIS
+   drive's sheet. This is the one place names are matched, and only
+   because every doubtful case is shown red for a manual check:
+     - all words found in exactly one student      -> plain row
+     - all words found in 2+ students              -> every one, red
+     - one word off by a single letter, rest exact -> possibility, red
+     - nothing                                     -> Sr. No. + sent name, red
+   Nothing is ever removed; the owner deletes wrong rows in Excel.
+   ============================================================ */
+const SL_HEADER_WORDS = ['studentname','studentsname','name','names','fullname','candidatename','candidate',
+  'sr','srno','no','shortlist','shortlisted','shortlistedstudents','shortliststudents','selected','selectedstudents'];
+
+function slTokens(s){ return String(s||'').toLowerCase().replace(/[^a-z\s]/g,' ').split(/\s+/).filter(Boolean); }
+
+/* one name per line; drops numbering, heading lines and blanks */
+function slCleanLines(text){
+  return String(text||'').split(/\r?\n/)
+    .map(l=>l.replace(/^\s*\d+\s*[.)\-:]?\s*/,'').replace(/[^A-Za-z\s.']/g,' ').replace(/\s+/g,' ').trim())
+    .filter(l=>slTokens(l).join('').length>=2 && !SL_HEADER_WORDS.includes(norm(l)));
+}
+
+/* at most one edit (insert / delete / replace) apart */
+function slOneOff(a,b){
+  if(a===b) return false;
+  if(Math.abs(a.length-b.length)>1) return false;
+  let i=0, j=0, edits=0;
+  while(i<a.length && j<b.length){
+    if(a[i]===b[j]){ i++; j++; continue; }
+    if(++edits>1) return false;
+    if(a.length>b.length) i++;
+    else if(a.length<b.length) j++;
+    else { i++; j++; }
+  }
+  return edits + (a.length-i) + (b.length-j) === 1;
+}
+
+/* where name / enrollment / mobile / department live in the uploaded sheet */
+function slFields(){
+  const H = state.headers;
+  const parts = [autoMatch('FirstName',H), autoMatch('MiddleName',H), autoMatch('LastName',H)]
+    .filter((h,i,a)=>h && a.indexOf(h)===i);
+  const nameCols = parts.length ? parts : H.filter(h=>{ const n=norm(h);
+    return n.includes('name') && !/company|father|mother|parent|guardian|user|file|college|institute/.test(n); }).slice(0,1);
+  return {
+    nameCols,
+    enroll: autoMatch('EnrollmentNo',H),
+    mobile: autoMatch('StudentMobNo',H),
+    dept:   autoMatch('CurrentDegree',H),
+  };
+}
+
+function slStudents(){
+  const f = slFields();
+  return sortRowsForOutput(state.rows).map(r=>{
+    const name = f.nameCols.map(h=>r[h]).filter(v=>String(v??'').trim()).join(' ').replace(/\s+/g,' ').trim();
+    return {
+      name, tokens: slTokens(name),
+      enroll: f.enroll ? r[f.enroll] ?? '' : '',
+      mobile: f.mobile ? r[f.mobile] ?? '' : '',
+      dept:   f.dept   ? r[f.dept]   ?? '' : '',
+    };
+  }).filter(s=>s.tokens.length);
+}
+
+/* every word exact except exactly one, which is one letter off */
+function slFuzzyHit(q, st){
+  if(q.length<2) return false;               // the other name must confirm it
+  let off = 0;
+  for(const t of q){
+    if(st.includes(t)) continue;
+    if(t.length>=3 && st.some(s=>s.length>=3 && slOneOff(t,s)) && ++off===1) continue;
+    return false;
+  }
+  return off===1;
+}
+
+function slMatch(names){
+  const students = slStudents();
+  const rows = [];
+  const counts = {matched:0, possible:0, notfound:0};
+  names.forEach((sent,i)=>{
+    const q = slTokens(sent);
+    const sr = i+1;
+    let hits = students.filter(s=>q.every(t=>s.tokens.includes(t)));
+    let kind = hits.length===1 ? 'matched' : hits.length>1 ? 'possible' : null;
+    if(!kind){
+      hits = students.filter(s=>slFuzzyHit(q, s.tokens));
+      kind = hits.length ? 'possible' : 'notfound';
+    }
+    counts[kind]++;
+    if(kind==='notfound'){
+      rows.push({sr, sent, red:true, enroll:'', name:sent, mobile:'', dept:''});
+    }else{
+      hits.forEach(s=>rows.push({sr, sent, red:kind!=='matched', enroll:s.enroll, name:s.name, mobile:s.mobile, dept:s.dept}));
+    }
+  });
+  return {total:names.length, rows, counts};
+}
+
+function openShortlist(){
+  if(!metaOk()) return;
+  state.step = 10;
+  render();
+}
+
+function onShortlistInput(){
+  const t = document.getElementById('slNames');
+  if(t) state.shortlistText = t.value;
+}
+
+function runShortlist(){
+  onShortlistInput();
+  const names = slCleanLines(state.shortlistText);
+  if(!names.length){ alert('Add at least one name, one per line.'); return; }
+  state.shortlistText = names.join('\n');
+  state.shortlistResult = slMatch(names);
+  render();
+}
+
+async function downloadShortlistXlsx(){
+  const res = state.shortlistResult;
+  if(!res) return;
+  const cols = [
+    {id:'sr', name:'Sr. No.'}, {id:'enroll', name:'Enrollment No.'}, {id:'name', name:'Full Name'},
+    {id:'mobile', name:'Mobile No.'}, {id:'dept', name:'Department'},
+  ];
+  const company = String(state.companyName||'').trim();
+  const GREY = 'FFBFBFBF';
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('Shortlist');
+
+  function styleCell(r,c,value,fill){
+    const cell = ws.getCell(r,c);
+    cell.value = value;
+    cell.alignment = {horizontal:'center', vertical:'middle'};
+    cell.font = {bold:true};
+    if(fill) cell.fill = {type:'pattern', pattern:'solid', fgColor:{argb:fill}};
+  }
+
+  fitColumns(ws, cols, res.rows);
+  [ 'L. J. University', 'L. J. Industry Interaction & Placement Cell', company+' Shortlist Students' ]
+    .forEach((t,i)=>{ ws.mergeCells(i+1,1,i+1,cols.length); styleCell(i+1,1,t,GREY); });
+  cols.forEach((c,i)=>styleCell(4,i+1,c.name,GREY));
+
+  res.rows.forEach((r,ri)=>{
+    cols.forEach((c,ci)=>{
+      const cell = ws.getCell(5+ri, ci+1);
+      cell.value = toCell(r[c.id], c.name);
+      cell.alignment = {horizontal:'center', vertical:'middle'};
+      if(typeof cell.value === 'number' && colNumberKind(c.name)==='int') cell.numFmt = '0';
+      if(r.red) cell.fill = {type:'pattern', pattern:'solid', fgColor:{argb:ROW_RED}};
+    });
+  });
+  borderAll(ws, 4 + res.rows.length, cols.length);
+  ws.views = [{state:'frozen', ySplit:4}];
+
+  saveBlob(await wb.xlsx.writeBuffer(), outName('Shortlist','xlsx', res.total));
+}
+
+async function runShortlistExport(){
+  try{ await downloadShortlistXlsx(); }
+  catch(err){
+    console.error(err);
+    alert('Export failed: '+(err && err.message ? err.message : 'unknown error'));
+  }
+}
+
+/* ---------- reading names from a photo (Tesseract.js, self-hosted, loaded on first use) ---------- */
+const OCR_BASE = 'vendor/tesseract/';
+let ocrWorkerP = null;
+
+function loadScript(src){
+  return new Promise((res,rej)=>{
+    const s = document.createElement('script');
+    s.src = src; s.onload = res; s.onerror = ()=>rej(new Error('Could not load '+src));
+    document.head.appendChild(s);
+  });
+}
+
+function ocrStatus(msg){
+  state.ocrMsg = msg;
+  const el = document.getElementById('ocrMsg');
+  if(el){ el.textContent = msg; el.style.display = msg ? 'block' : 'none'; }
+}
+
+function getOcrWorker(){
+  if(!ocrWorkerP){
+    ocrWorkerP = (async()=>{
+      if(!window.Tesseract) await loadScript(OCR_BASE+'tesseract.min.js');
+      const base = new URL(OCR_BASE, location.href).href;
+      const w = await Tesseract.createWorker('eng', 1, {
+        workerPath: base+'worker.min.js',
+        corePath: base,                 // folder: picks the SIMD or plain LSTM build
+        langPath: base,
+        gzip: false,
+        logger: m=>{
+          if(m.status==='recognizing text') ocrStatus('Reading names… '+Math.round((m.progress||0)*100)+'%');
+          else if(/load/.test(m.status||'')) ocrStatus('Loading photo reader (first time takes a few seconds)…');
+        },
+      });
+      await w.setParameters({tessedit_pageseg_mode:'6'});   // one block of lines
+      return w;
+    })().catch(e=>{ ocrWorkerP = null; throw e; });
+  }
+  return ocrWorkerP;
+}
+
+/* enlarge, black & white (Otsu), erase table border lines — screenshots of a bordered
+   table read as nothing without this */
+async function prepShortlistImage(file){
+  const bmp = await createImageBitmap(file);
+  let scale = Math.max(1, Math.min(4, Math.round(450 / bmp.width)));   // ~3x for a small screenshot
+  if(Math.max(bmp.width,bmp.height)*scale > 4000) scale = Math.max(1, Math.floor(4000/Math.max(bmp.width,bmp.height)));
+  const w = bmp.width*scale, h = bmp.height*scale;
+  const cv = document.createElement('canvas');
+  cv.width = w; cv.height = h;
+  const ctx = cv.getContext('2d');
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(bmp, 0, 0, w, h);
+  const img = ctx.getImageData(0,0,w,h), px = img.data;
+
+  const grey = new Uint8Array(w*h), hist = new Array(256).fill(0);
+  for(let i=0;i<w*h;i++){
+    const g = Math.round(0.299*px[i*4] + 0.587*px[i*4+1] + 0.114*px[i*4+2]);
+    grey[i] = g; hist[g]++;
+  }
+  let sumAll=0; for(let t=0;t<256;t++) sumAll += t*hist[t];
+  let wB=0, sumB=0, best=-1, th=128;
+  for(let t=0;t<256;t++){
+    wB += hist[t]; if(!wB) continue;
+    const wF = w*h - wB; if(!wF) break;
+    sumB += t*hist[t];
+    const v = wB*wF*Math.pow(sumB/wB - (sumAll-sumB)/wF, 2);
+    if(v>best){ best=v; th=t; }
+  }
+  th = Math.max(100, Math.min(170, th));   // higher cut-offs thin out letters like l / i
+  const rowDark = new Uint32Array(h), colDark = new Uint32Array(w);
+  for(let y=0;y<h;y++) for(let x=0;x<w;x++) if(grey[y*w+x]<=th){ rowDark[y]++; colDark[x]++; }
+  for(let y=0;y<h;y++) for(let x=0;x<w;x++){
+    const i = y*w+x;
+    const dark = grey[i]<=th && rowDark[y]<=0.5*w && colDark[x]<=0.5*h;
+    const v = dark ? 0 : 255;
+    px[i*4]=px[i*4+1]=px[i*4+2]=v; px[i*4+3]=255;
+  }
+  ctx.putImageData(img,0,0);
+  return cv;
+}
+
+async function readShortlistImage(file){
+  if(!file || !/^image\//.test(file.type||'')){ alert('Choose a photo or screenshot (PNG / JPG).'); return; }
+  if(state.ocrBusy) return;
+  state.ocrBusy = true;
+  setOcrBusyUi(true);
+  ocrStatus('Loading photo reader (first time takes a few seconds)…');
+  try{
+    const worker = await getOcrWorker();
+    const canvas = await prepShortlistImage(file);
+    ocrStatus('Reading names…');
+    const r = await worker.recognize(canvas);
+    const names = slCleanLines(r.data.text);
+    onShortlistInput();
+    const existing = String(state.shortlistText||'').trim();
+    state.shortlistText = (existing ? existing+'\n' : '') + names.join('\n');
+    state.shortlistResult = null;
+    state.ocrBusy = false;
+    state.ocrMsg = names.length
+      ? names.length+' names read from the photo. Check the spelling, then press Find.'
+      : 'No names could be read from this photo. Type or paste them instead.';
+    render();
+  }catch(err){
+    console.error(err);
+    state.ocrBusy = false;
+    state.ocrMsg = 'Could not read the photo ('+(err && err.message ? err.message : 'error')+'). Type or paste the names instead.';
+    render();
+  }
+}
+
+function setOcrBusyUi(busy){
+  const f = document.getElementById('slFindBtn');
+  if(f) f.disabled = busy;
+  const dz = document.getElementById('dzShot');
+  if(dz) dz.style.opacity = busy ? '.4' : '';
+}
+
+/* Ctrl + V a screenshot straight onto the Shortlist screen */
+if(typeof document!=='undefined' && document.addEventListener){
+  document.addEventListener('paste', e=>{
+    if(state.step!==10) return;
+    const items = (e.clipboardData && e.clipboardData.items) || [];
+    for(const it of items){
+      if(it.kind==='file' && /^image\//.test(it.type)){
+        e.preventDefault();
+        readShortlistImage(it.getAsFile());
+        return;
+      }
+    }
+  });
+}
+
+function renderShortlist(){
+  const company = String(state.companyName||'').trim();
+  const res = state.shortlistResult;
+  let html = '<span class="back" onclick="state.step=2; render();">&larr; Back</span>'+
+    '<div class="col-heading" style="margin-top:0;">'+esc(company)+' Shortlist</div>'+
+    '<div class="upload-label">Photo / screenshot of the shortlist</div>'+
+    '<div class="dropzone" id="dzShot" tabindex="0"'+(state.ocrBusy?' style="opacity:.4;"':'')+'><span class="arrow">&#8595;</span></div>'+
+    '<input type="file" id="fiShot" accept="image/*">'+
+    '<div class="hint" style="text-align:center;margin:-4px 0 14px;">or press Ctrl + V to paste a screenshot</div>'+
+    '<div class="preview" id="ocrMsg" style="white-space:normal;margin:0 0 14px;'+(state.ocrMsg?'':'display:none;')+'">'+esc(state.ocrMsg||'')+'</div>'+
+    '<div class="result-label">Shortlist names (one per line)</div>'+
+    '<textarea class="field sl-names" id="slNames" rows="8" placeholder="Harpal Patel&#10;Dhruv Patel&#10;…" oninput="onShortlistInput()">'+
+      esc(state.shortlistText||'')+'</textarea>'+
+    '<button class="btn btn-gold" id="slFindBtn" onclick="runShortlist()"'+(state.ocrBusy?' disabled':'')+'>Find</button>';
+
+  if(res){
+    html += '<div class="col-heading">Result</div>'+
+      '<div class="count-row"><div class="count-label">Matched</div><div class="count-value">'+res.counts.matched+'</div></div>'+
+      '<div class="count-row"><div class="count-label">Possible</div><div class="count-value">'+res.counts.possible+'</div></div>'+
+      '<div class="count-row"><div class="count-label">Not found</div><div class="count-value">'+res.counts.notfound+'</div></div>'+
+      '<div class="count-row total"><div class="count-label">Names sent</div><div class="count-value">'+res.total+'</div></div>'+
+      '<div class="dup-scroll" style="margin-top:14px;"><table class="dup-table">'+
+      '<thead><tr><th>Sr. No.</th><th>Enrollment No.</th><th>Full Name</th><th>Mobile No.</th><th>Department</th></tr></thead><tbody>'+
+      res.rows.map(r=>'<tr'+(r.red?' class="row-out"':'')+'>'+
+        '<td class="sr">'+r.sr+'</td><td>'+esc(r.enroll)+'</td><td>'+esc(r.name)+'</td><td>'+esc(r.mobile)+'</td><td>'+esc(r.dept)+'</td></tr>').join('')+
+      '</tbody></table></div>'+
+      '<div class="hint">Red rows need a check: more than one student, a one-letter spelling difference, or not found. '+
+      'Rows with the same Sr. No. are options for the same name &mdash; keep the right one in Excel.</div>'+
+      '<button class="btn btn-gold" onclick="runShortlistExport()">Download Shortlist</button>';
+  }
+  return html;
+}
+
+/* ============================================================
    RENDER
    ============================================================ */
 function render(){
@@ -1045,8 +1384,9 @@ function render(){
   else if(state.step===7) body = renderDuplicates();
   else if(state.step===8) body = renderStatusReview();
   else if(state.step===9) body = renderCountsOnly();
+  else if(state.step===10) body = renderShortlist();
 
-  app.classList.toggle('wide', state.step===7 || state.step===8);
+  app.classList.toggle('wide', state.step===7 || state.step===8 || (state.step===10 && !!state.shortlistResult));
   const title = state.fileName ? (CONTEXTS[state.context]||CONTEXTS.student).title : 'Data Formatter';
 
   app.innerHTML =
@@ -1065,6 +1405,7 @@ function render(){
   }
   if(state.step===5 && !state.masterFileName) wireDrop('dzMaster','fiMaster', handleMasterFile);
   if(state.step===2 && needsCompany()) onMetaInput();
+  if(state.step===10) wireDrop('dzShot','fiShot', readShortlistImage);
 }
 
 function wireDrop(zoneId, inputId, onFile){
@@ -1150,7 +1491,8 @@ function renderChoice(){
     '<button type="button" class="btn result-action-btn" id="editColumnBtn" '+dis+
       ' onclick="selectEdit()">Edit Column</button>'+
     (state.context==='student'
-      ? '<button type="button" class="btn result-action-btn" onclick="showPermanentCounts()">Count Summary</button>'
+      ? '<button type="button" class="btn result-action-btn" id="shortlistBtn" '+dis+' onclick="openShortlist()">Shortlist</button>'+
+        '<button type="button" class="btn result-action-btn" onclick="showPermanentCounts()">Count Summary</button>'
       : '');
 }
 
