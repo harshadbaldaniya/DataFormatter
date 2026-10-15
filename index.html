@@ -1608,9 +1608,81 @@ function countBlock(heading, data){
     '<div class="count-row total"><div class="count-label">Total</div><div class="count-value">'+total+'</div></div>';
 }
 
+function countSummaryData(){
+  return {
+    dc: countsBy(n=>n.includes('degree')||n.includes('department')||n.includes('branch')||n.includes('course')),
+    jc: countsBy(n=>n.includes('jobprofile')||n.includes('jobtitle')||n.includes('jobrole')||(n.includes('job')&&n.includes('profile'))||n.includes('position')),
+  };
+}
+
+/* Count Summary as one white PNG for WhatsApp — drawn on a canvas, nothing leaves the browser */
+function downloadCountImage(){
+  const {dc, jc} = countSummaryData();
+  const sections = [['Department Wise Count', dc], ['Job Profile Wise Count', jc]].filter(x=>x[1]);
+  if(!sections.length) return;
+  const company = String(state.companyName||'').trim();
+  const C = {bg:'#ffffff', text:'#111a2e', muted:'#4f5f7a', border:'#d5dce8', zebra:'#f4f6fb', accent:'#3b82f6'};
+  const FONT = "'Segoe UI', Arial, sans-serif";
+  const W = 900, PAD = 40, ROW = 42, VAL_W = 130, SCALE = 2;
+  const TABLE_W = W - PAD*2, LABEL_W = TABLE_W - VAL_W;
+
+  let H = PAD + 36 + 30 + 20;                                   // title + total line + gap
+  sections.forEach(([,d])=>{ H += 40 + (Object.keys(d.counts).length + 1) * ROW + 28; });
+  H += PAD - 28;
+
+  const cv = document.createElement('canvas');
+  cv.width = W*SCALE; cv.height = H*SCALE;
+  const ctx = cv.getContext('2d');
+  ctx.scale(SCALE, SCALE);
+  ctx.fillStyle = C.bg; ctx.fillRect(0,0,W,H);
+  ctx.textBaseline = 'middle';
+
+  function fit(text, maxW){
+    text = String(text);
+    if(ctx.measureText(text).width <= maxW) return text;
+    while(text.length > 1 && ctx.measureText(text+'…').width > maxW) text = text.slice(0,-1);
+    return text+'…';
+  }
+
+  let y = PAD + 18;
+  ctx.textAlign = 'center';
+  ctx.fillStyle = C.text; ctx.font = '700 28px '+FONT;
+  ctx.fillText(fit((company ? company+' – ' : '')+'Count Summary', TABLE_W), W/2, y);
+  y += 36;
+  ctx.fillStyle = C.muted; ctx.font = '400 18px '+FONT;
+  ctx.fillText('Total Students: '+state.outputRows.length, W/2, y);
+  y += 30 + 20;
+
+  sections.forEach(([heading, d])=>{
+    ctx.textAlign = 'left';
+    ctx.fillStyle = C.accent; ctx.font = '700 19px '+FONT;
+    ctx.fillText(heading, PAD, y);
+    y += 22;
+    const entries = Object.entries(d.counts);
+    const total = entries.reduce((a,[,v])=>a+v,0);
+    entries.concat([['Total', total]]).forEach(([label, v], i)=>{
+      const isTotal = i === entries.length;
+      ctx.fillStyle = isTotal ? C.accent : (i % 2 ? C.zebra : C.bg);
+      ctx.fillRect(PAD, y, TABLE_W, ROW);
+      ctx.strokeStyle = isTotal ? C.accent : C.border; ctx.lineWidth = 1;
+      ctx.strokeRect(PAD+0.5, y+0.5, LABEL_W, ROW-1);
+      ctx.strokeRect(PAD+LABEL_W+0.5, y+0.5, VAL_W-1, ROW-1);
+      ctx.fillStyle = isTotal ? '#ffffff' : C.text;
+      ctx.font = (isTotal ? '700 ' : '400 ')+'17px '+FONT;
+      ctx.textAlign = 'left';
+      ctx.fillText(fit(label, LABEL_W-28), PAD+14, y+ROW/2);
+      ctx.textAlign = 'center';
+      ctx.fillText(String(v), PAD+LABEL_W+VAL_W/2, y+ROW/2);
+      y += ROW;
+    });
+    y += 28 + 18;
+  });
+
+  cv.toBlob(b=>{ if(b) saveBlob(b, outName('Counts','png')); }, 'image/png');
+}
+
 function renderCountsOnly(){
-  const dc = countsBy(n=>n.includes('degree')||n.includes('department')||n.includes('branch')||n.includes('course'));
-  const jc = countsBy(n=>n.includes('jobprofile')||n.includes('jobtitle')||n.includes('jobrole')||(n.includes('job')&&n.includes('profile'))||n.includes('position'));
+  const {dc, jc} = countSummaryData();
   const missing = [];
   if(!dc) missing.push('Department');
   if(!jc) missing.push('Job Profile');
@@ -1620,6 +1692,7 @@ function renderCountsOnly(){
     (missing.length
       ? '<p class="hint">Could not find a '+missing.join(' or ')+' column in this format.</p>'
       : '')+
+    ((dc || jc) ? '<button class="btn btn-gold" onclick="downloadCountImage()">Download Count Image</button>' : '')+
     '<button class="btn" onclick="state.step=state.countReturnStep; render();">Back</button>';
 }
 
