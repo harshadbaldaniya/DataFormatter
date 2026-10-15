@@ -1692,8 +1692,10 @@ function renderCountsOnly(){
     (missing.length
       ? '<p class="hint">Could not find a '+missing.join(' or ')+' column in this format.</p>'
       : '')+
-    ((dc || jc) ? '<button class="btn btn-gold" onclick="downloadCountImage()">Download Count Image</button>' : '')+
-    '<button class="btn" onclick="state.step=state.countReturnStep; render();">Back</button>';
+    '<div style="margin-top:22px;">'+
+    ((dc || jc) ? '<button type="button" class="btn result-action-btn" onclick="downloadCountImage()">Download Count Image</button>' : '')+
+    '<button type="button" class="btn result-action-btn" onclick="state.step=state.countReturnStep; render();">Back</button>'+
+    '</div>';
 }
 
 /* ---------- possible duplicates (report only — nothing is removed) ---------- */
