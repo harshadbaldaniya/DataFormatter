@@ -376,24 +376,22 @@ function normEnroll(v){
 }
 
 function runMasterFilter(){
-  // matching is by enrollment and mobile only. names are not identifiers —
-  // three different students can all be "Diya Shah", and a wrong Placed hides
-  // an eligible student from the drive. no match at all is safer: it becomes NA.
+  // matching is by ENROLLMENT ONLY (owner's rule, Oct 19). names are not identifiers —
+  // three different students can all be "Diya Shah" — and the mobile fallback was
+  // removed too. a wrong Placed hides an eligible student from the drive; no match
+  // at all is safer: it becomes NA and gets checked by hand.
   const mh = state.masterHeaders;
   const enrollColM = findCol(mh, ['enrollment','enroll','grno']);
-  const mobileColM = findCol(mh, ['mobile','mob','phone','contact']);
   const statusColM = findCol(mh, ['status']);
 
-  const byEnroll = new Map(), byMobile = new Map();
+  const byEnroll = new Map();
   state.masterRows.forEach(r=>{
     const status = statusColM ? normalizeStatus(r[statusColM]) : 'Eligible';
     if(enrollColM){ const k = normEnroll(r[enrollColM]); if(k) byEnroll.set(k, status); }
-    if(mobileColM){ const k = normPhone(r[mobileColM]); if(k) byMobile.set(k, status); }
   });
 
   const sh = state.headers;
   const enrollColS = findCol(sh, ['enrollment','enroll','grno']);
-  const mobileColS = findCol(sh, ['mobile','mob','phone','contact']);
 
   const statusKey  = uniqueKey(state.headers, 'Status');
   const matchedKey = uniqueKey(state.headers.concat([statusKey]), 'Matched By');
@@ -406,10 +404,6 @@ function runMasterFilter(){
     if(enrollColS){
       const v = normEnroll(row[enrollColS]);
       if(v && byEnroll.has(v)) result = {status:byEnroll.get(v), matchedBy:'Enrollment'};
-    }
-    if(!result && mobileColS){
-      const v = normPhone(row[mobileColS]);
-      if(v && byMobile.has(v)) result = {status:byMobile.get(v), matchedBy:'Mobile'};
     }
     if(!result) result = {status:'NA', matchedBy:'None'};
     row[statusKey]  = result.status;
@@ -851,9 +845,9 @@ function statusFill(status){
   return null;                 // Eligible stays plain
 }
 
-function writeDataRows(ws, cols, rows, startRow){
+function writeDataRows(ws, cols, rows, startRow, rowFills){
   rows.forEach((r,ri)=>{
-    const fill = statusFill(state.outputStatus[ri]);
+    const fill = (rowFills && rowFills[ri]) || statusFill(state.outputStatus[ri]);
     cols.forEach((c,ci)=>{
       const cell = ws.getCell(startRow+ri, ci+1);
       cell.value = toCell(r[c.id], c.name);
@@ -948,7 +942,13 @@ async function runExport(){
 function redownload(){ runExport(); }
 
 async function downloadStudentXlsx(base){
-  const cols = state.outputCols;
+  // duplicates: red row + a Remark column, added only when at least one duplicate exists
+  const remarks = dupRemarks();
+  const hasDup = remarks.some(Boolean);
+  const REMARK_ID = '__dupRemark';
+  const cols = hasDup ? state.outputCols.concat([{id:REMARK_ID, name:'Remark'}]) : state.outputCols;
+  const rows = hasDup ? state.outputRows.map((r,i)=>Object.assign({}, r, {[REMARK_ID]: remarks[i]||''})) : state.outputRows;
+  const rowFills = remarks.map(m=>m ? ROW_RED : null);
   const colCount = cols.length;
   const GREY = 'FFBFBFBF';
 
@@ -964,7 +964,7 @@ async function downloadStudentXlsx(base){
     return cell;
   }
 
-  fitColumns(ws, cols, state.outputRows);
+  fitColumns(ws, cols, rows);
 
   ws.mergeCells(1,1,1,Math.max(colCount,1));
   styleCell(1,1,'L. J. University',GREY);
@@ -972,8 +972,8 @@ async function downloadStudentXlsx(base){
   styleCell(2,1,'L. J. Industry Interaction & Placement Cell',GREY);
   cols.forEach((c,i)=>{ styleCell(3,i+1,c.name,GREY); });
 
-  writeDataRows(ws, cols, state.outputRows, 4);
-  borderAll(ws, 3 + state.outputRows.length, colCount);
+  writeDataRows(ws, cols, rows, 4, rowFills);
+  borderAll(ws, 3 + rows.length, colCount);
   ws.views = [{state:'frozen', ySplit:3}];
 
   rememberCompany();
@@ -1750,6 +1750,40 @@ function dupSets(){
     {label:'Email',          groups: dupGroups(emailCols,  dupKeyEmail),  show:'raw'},
   ];
   return {sets, total: sets.reduce((a,s)=>a+s.groups.length,0)};
+}
+
+/* per output row: "Duplicate - Sr. 13 (Enrollment, Name, Email)" or '' — same four checks as the
+   Possible Duplicates screen. Rows sharing different fields are listed separately with "; " */
+function dupRemarks(){
+  const d = dupSets();
+  const out = state.outputRows.map(()=> '');
+  if(!d || !d.total) return out;
+  const SHORT = {'Enrollment No.':'Enrollment', 'Name':'Name', 'Mobile':'Mobile', 'Email':'Email'};
+  const ORDER = ['Enrollment','Name','Mobile','Email'];
+  const links = state.outputRows.map(()=> new Map());     // other Sr. -> Set of field labels
+  d.sets.forEach(set=>{
+    set.groups.forEach(g=>{
+      g.rows.forEach(sr=>{
+        g.rows.forEach(other=>{
+          if(other===sr) return;
+          const m = links[sr-1];
+          if(!m.has(other)) m.set(other, new Set());
+          m.get(other).add(SHORT[set.label]||set.label);
+        });
+      });
+    });
+  });
+  links.forEach((m,i)=>{
+    if(!m.size) return;
+    const byFields = new Map();                            // "Mobile" -> [7, 13]
+    [...m.entries()].sort((a,b)=>a[0]-b[0]).forEach(([other, f])=>{
+      const k = ORDER.filter(x=>f.has(x)).join(', ');
+      if(!byFields.has(k)) byFields.set(k, []);
+      byFields.get(k).push(other);
+    });
+    out[i] = 'Duplicate - ' + [...byFields.entries()].map(([k, srs])=>'Sr. '+srs.join(', ')+' ('+k+')').join('; ');
+  });
+  return out;
 }
 
 function openDuplicates(){
