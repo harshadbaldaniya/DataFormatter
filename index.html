@@ -17,6 +17,7 @@
     --hit-bg:rgba(196,85,77,.20); --hit-text:#f0a79f; --row-out:rgba(196,85,77,.16); --row-na:rgba(110,190,120,.14);
     --dup-bg:#2a1518; --dup-border:#7a3b36; --dup-text:#e79a93;
     --hover-tint:rgba(59,130,246,.12);
+    --warn-bg:rgba(255,214,90,.22); --warn-text:#ffe08a;
   }
   /* light theme — toggled by the moon / sun button, remembered in localStorage (lj_theme) */
   :root[data-theme="light"]{
@@ -25,6 +26,7 @@
     --hit-bg:rgba(196,85,77,.16); --hit-text:#a8362d; --row-out:rgba(196,85,77,.13); --row-na:rgba(60,160,80,.14);
     --dup-bg:#fdecea; --dup-border:#e7b3ae; --dup-text:#b0413a;
     --hover-tint:rgba(59,130,246,.08);
+    --warn-bg:#ffeb9c; --warn-text:#7a5a00;
   }
   .theme-toggle{position:fixed;top:16px;right:16px;z-index:10;width:36px;height:36px;border-radius:50%;
     border:1px solid var(--border);background:var(--surface);color:var(--muted);cursor:pointer;
@@ -97,6 +99,7 @@
   .dup-table td.hit{background:var(--hit-bg);color:var(--hit-text);font-weight:600;}
   .dup-table tr.row-out td{background:var(--row-out);}
   .dup-table tr.row-na td{background:var(--row-na);}
+  .dup-table td.warn{background:var(--warn-bg);color:var(--warn-text);font-weight:600;}
   .btn-dup{background:var(--dup-bg);border-color:var(--dup-border);color:var(--dup-text);}
   .btn-dup:hover{border-color:var(--red);color:var(--hit-text);}
   @keyframes dupBlink{
@@ -996,7 +999,7 @@ async function downloadStudentXlsx(base){
 
   writeDataRows(ws, cols, rows, 4, rowFills);
 
-  // mobile mismatch with Centralize: the form's Mobile cell and the Verify cell go yellow
+  // mobile mismatch with Centralize: the form's Mobile cell goes yellow (the Verify cell stays plain)
   const vIdx = state.verifyKey ? cols.findIndex(c=>{ const f=state.currentFormat.find(x=>x.id===c.id); return f && f.source===state.verifyKey; }) : -1;
   if(vIdx>=0){
     const mob = autoMatch('StudentMobNo', state.headers);
@@ -1004,7 +1007,7 @@ async function downloadStudentXlsx(base){
     rows.forEach((r,ri)=>{
       const v = String(r[cols[vIdx].id] ?? '').trim();
       if(!v || v==='Yes') return;
-      [vIdx, mIdx].filter(i=>i>=0).forEach(i=>{
+      [mIdx].filter(i=>i>=0).forEach(i=>{        // StudentMobNo only
         ws.getCell(4+ri, i+1).fill = {type:'pattern', pattern:'solid', fgColor:{argb:CELL_YELLOW}};
       });
     });
@@ -1553,13 +1556,17 @@ function renderFilter(){
       (state.filterSummary
         ? '<div class="col-heading">Result:</div>'+
           Object.entries(state.filterSummary).map(([k,v])=>
-            '<div class="count-row"><div class="count-label">'+esc(k)+'</div><div class="count-value">'+v+'</div></div>').join('')
+            '<div class="count-row"><div class="count-label">'+esc(k)+'</div><div class="count-value">'+v+'</div></div>').join('')+
+          (state.verifyKey
+            ? '<div class="count-row"><div class="count-label">Mobile mismatch</div><div class="count-value">'+
+              state.rows.filter(mobileMismatch).length+'</div></div>'
+            : '')
         : '')+
       '<button class="btn btn-gold" onclick="state.step=2; render();">Continue</button>'+
       statusReviewButton();
   }
   return '<div class="result-label">Check against master sheet? (optional)</div>'+
-    '<p style="color:var(--faint);font-size:12.5px;margin:0 0 16px;">Matches each student by Enrollment No., then Mobile No., and marks Placed / Freeze / Debarred / Eligible / NA. No match at all becomes NA &mdash; names are never used, since two students can share one.</p>'+
+    '<p style="color:var(--faint);font-size:12.5px;margin:0 0 16px;">Matches each student by Enrollment No. only, and marks Placed / Freeze / Debarred / Eligible / NA. No match becomes NA &mdash; names and mobile numbers are never used to match. The mobile is only checked against the master sheet (Mobile No. Verify).</p>'+
     '<div class="dropzone" id="dzMaster" style="margin-top:6px;" tabindex="0"><span class="arrow">&#8595;</span></div>'+
     '<div class="upload-label" style="margin-bottom:20px;">Upload Master Sheet</div>'+
     '<input type="file" id="fiMaster" accept=".xlsx,.xls,.csv">'+
@@ -1874,11 +1881,18 @@ function dupTable(group){
 
 /* ---------- status review (master-sheet result, before exporting) ---------- */
 /* everything that isn't cleanly Eligible: the rows worth a second look */
+/* Centralize had a different mobile for this student (Mobile No. Verify holds that number) */
+function mobileMismatch(r){
+  if(!state.verifyKey) return false;
+  const v = String(r[state.verifyKey] ?? '').trim();
+  return !!v && v!=='Yes';
+}
+
 function statusReviewRows(){
   if(!state.filterApplied || !state.statusKey) return [];
   return state.rows
-    .map(r=>({status:String(r[state.statusKey]||''), matchedBy:String(r[state.matchedKey]||''), data:r}))
-    .filter(x=>x.status && x.status!=='Eligible');
+    .map(r=>({status:String(r[state.statusKey]||''), matchedBy:String(r[state.matchedKey]||''), mismatch:mobileMismatch(r), data:r}))
+    .filter(x=>(x.status && x.status!=='Eligible') || x.mismatch);
 }
 
 function statusReviewButton(){
@@ -1900,7 +1914,8 @@ function statusReviewFields(){
   const defs = [
     {label:'Enrollment No.', cols: pick(n=>n.includes('enrollment')||n.includes('enroll')||n.includes('grno')).slice(0,1)},
     {label:'Name',           cols: pick(n=>n.includes('name')&&!n.includes('company')).slice(0,3)},
-    {label:'Mobile',         cols: pick(n=>n.includes('mobile')||n.includes('mob')||n.includes('phone')||n.includes('contact')).slice(0,1)},
+    {label:'Mobile',         cols: pick(n=>n.includes('mobile')||n.includes('mob')||n.includes('phone')||n.includes('contact')).slice(0,1), mobile:true},
+    {label:'Mobile No. Verify', cols: state.verifyKey ? [state.verifyKey] : []},
     {label:'Email',          cols: pick(n=>n.includes('email')||n.includes('mail')).slice(0,1)},
     {label:'Department',     cols: pick(n=>n.includes('degree')||n.includes('department')||n.includes('branch')||n.includes('course')).slice(0,1)},
   ];
@@ -1922,16 +1937,17 @@ function renderStatusReview(){
     '<thead><tr>'+fields.map(f=>'<th>'+f.label+'</th>').join('')+
     '<th>Status</th><th>Matched By</th></tr></thead><tbody>'+
     rows.map(x=>{
-      const cls = x.status==='NA' ? ' class="row-na"' : ' class="row-out"';
+      const cls = x.status==='NA' ? ' class="row-na"' : (x.status==='Eligible' ? '' : ' class="row-out"');
       return '<tr'+cls+'>'+
-        fields.map(f=>'<td>'+(esc(f.cols.map(c=>x.data[c]).filter(v=>String(v??'').trim()).join(' ').trim())||'&mdash;')+'</td>').join('')+
+        fields.map(f=>'<td'+(f.mobile && x.mismatch ? ' class="warn"' : '')+'>'+(esc(f.cols.map(c=>x.data[c]).filter(v=>String(v??'').trim()).join(' ').trim())||'&mdash;')+'</td>').join('')+
         '<td>'+esc(x.status)+'</td><td>'+esc(x.matchedBy)+'</td></tr>';
     }).join('')+
     '</tbody></table></div>';
 
   return html+
     '<div class="hint">Red rows were found in the master sheet as Placed, Freeze or Debarred. '+
-    'Green rows were not found at all &mdash; check those by hand. The downloaded sheet uses the same colours.</div>'+
+    'Green rows were not found at all &mdash; check those by hand. A yellow mobile does not match the master sheet; '+
+    'Mobile No. Verify shows the master sheet number. The downloaded sheet uses the same colours.</div>'+
     '<button class="btn" onclick="state.step=5; render();">Back</button>';
 }
 
