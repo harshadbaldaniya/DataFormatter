@@ -181,7 +181,7 @@ const state = {
   outputRows: [],          // [{ <colId>: value }]
   submitted:false, dupSeen:false, statusSeen:false,
   filterApplied:false, masterFileName:null, masterHeaders:[], masterRows:[], filterSummary:null,
-  statusKey:null, matchedKey:null,
+  statusKey:null, matchedKey:null, verifyKey:null,
   sheetNames:[], activeSheet:null,
   shortlistText:'', shortlistResult:null, ocrBusy:false, ocrMsg:'',
 };
@@ -346,7 +346,7 @@ function resetAll(){
   state.mode=null; state.modeChoice=null; state.currentFormat=[];
   state.outputCols=[]; state.outputRows=[]; state.outputStatus=[]; state.submitted=false; state.dupSeen=false;
   state.filterApplied=false; state.masterFileName=null; state.masterHeaders=[]; state.masterRows=[];
-  state.filterSummary=null; state.statusKey=null; state.matchedKey=null; state.statusSeen=false;
+  state.filterSummary=null; state.statusKey=null; state.matchedKey=null; state.verifyKey=null; state.statusSeen=false;
   state.sheetNames=[]; state.activeSheet=null;
   state.shortlistText=''; state.shortlistResult=null; state.ocrBusy=false; state.ocrMsg='';
   pendingWB=null; pendingKind=null; pendingFile=null; pendingCtx=null;
@@ -384,34 +384,49 @@ function runMasterFilter(){
   const enrollColM = findCol(mh, ['enrollment','enroll','grno']);
   const statusColM = findCol(mh, ['status']);
 
-  const byEnroll = new Map();
+  // the Centralize mobile is only CHECKED against the form's mobile once enrollment has
+  // matched — it never decides a status. result goes to the "Mobile No. Verify" column.
+  const mobileColM = autoMatch('MobileNo', mh);
+
+  const byEnroll = new Map(), mobileByEnroll = new Map();
   state.masterRows.forEach(r=>{
     const status = statusColM ? normalizeStatus(r[statusColM]) : 'Eligible';
-    if(enrollColM){ const k = normEnroll(r[enrollColM]); if(k) byEnroll.set(k, status); }
+    if(enrollColM){
+      const k = normEnroll(r[enrollColM]);
+      if(k){ byEnroll.set(k, status); if(mobileColM) mobileByEnroll.set(k, normPhone(r[mobileColM])); }
+    }
   });
 
   const sh = state.headers;
   const enrollColS = findCol(sh, ['enrollment','enroll','grno']);
+  const mobileColS = autoMatch('StudentMobNo', sh);
 
   const statusKey  = uniqueKey(state.headers, 'Status');
   const matchedKey = uniqueKey(state.headers.concat([statusKey]), 'Matched By');
+  const verifyKey  = uniqueKey(state.headers.concat([statusKey, matchedKey]), 'Mobile No. Verify');
   state.statusKey = statusKey;
   state.matchedKey = matchedKey;
+  state.verifyKey = verifyKey;
 
   const summary = {Placed:0, Freeze:0, Debarred:0, Eligible:0, NA:0};
   state.rows.forEach(row=>{
-    let result = null;
+    let result = null, verify = '';
     if(enrollColS){
       const v = normEnroll(row[enrollColS]);
-      if(v && byEnroll.has(v)) result = {status:byEnroll.get(v), matchedBy:'Enrollment'};
+      if(v && byEnroll.has(v)){
+        result = {status:byEnroll.get(v), matchedBy:'Enrollment'};
+        const central = mobileByEnroll.get(v);              // blank in Centralize -> nothing to check
+        if(central) verify = (mobileColS && normPhone(row[mobileColS])===central) ? 'Yes' : central;
+      }
     }
     if(!result) result = {status:'NA', matchedBy:'None'};
     row[statusKey]  = result.status;
     row[matchedKey] = result.matchedBy;
+    row[verifyKey]  = verify;
     summary[result.status] = (summary[result.status]||0) + 1;
   });
 
-  state.headers.push(statusKey, matchedKey);
+  state.headers.push(statusKey, matchedKey, verifyKey);
   state.filterApplied = true;
   state.filterSummary = summary;
   state.statusSeen = false;        // new master sheet re-arms the blink
@@ -419,12 +434,12 @@ function runMasterFilter(){
 
 function removeMaster(){
   if(state.statusKey){
-    state.headers = state.headers.filter(h=>h!==state.statusKey && h!==state.matchedKey);
-    state.rows.forEach(r=>{ delete r[state.statusKey]; delete r[state.matchedKey]; });
+    state.headers = state.headers.filter(h=>h!==state.statusKey && h!==state.matchedKey && h!==state.verifyKey);
+    state.rows.forEach(r=>{ delete r[state.statusKey]; delete r[state.matchedKey]; delete r[state.verifyKey]; });
   }
   state.masterFileName=null; state.masterHeaders=[]; state.masterRows=[];
   state.filterApplied=false; state.filterSummary=null;
-  state.statusKey=null; state.matchedKey=null; state.statusSeen=false;
+  state.statusKey=null; state.matchedKey=null; state.verifyKey=null; state.statusSeen=false;
   render();
 }
 
@@ -618,6 +633,12 @@ function buildCurrentFormat(){
     return {id:c.id, name:c.name, type:'normal', source: autoMatch(c.name, state.headers)};
   });
   if(state.filterApplied && state.context==='student'){
+    if(state.verifyKey){
+      const mob = autoMatch('StudentMobNo', state.headers);
+      const at = cols.findIndex(c=>c.type==='normal' && mob && c.source===mob);
+      const vcol = {id:uid(), name:'Mobile No. Verify', type:'normal', source:state.verifyKey};
+      if(at>=0) cols.splice(at+1, 0, vcol); else cols.push(vcol);
+    }
     cols.push({id:uid(), name:'Status', type:'normal', source:state.statusKey});
     cols.push({id:uid(), name:'Matched By', type:'normal', source:state.matchedKey});
   }
@@ -838,6 +859,7 @@ function fitColumns(ws, cols, rows){
 
 const ROW_RED = 'FFFFC7CE';    // Placed / Freeze / Debarred — pull these out
 const ROW_GREEN = 'FFC6EFCE';  // NA — not found in the master sheet, check by hand
+const CELL_YELLOW = 'FFFFEB9C'; // Mobile No. Verify mismatch — Excel's own "neutral" yellow
 
 function statusFill(status){
   if(status==='Placed'||status==='Freeze'||status==='Debarred') return ROW_RED;
@@ -973,6 +995,20 @@ async function downloadStudentXlsx(base){
   cols.forEach((c,i)=>{ styleCell(3,i+1,c.name,GREY); });
 
   writeDataRows(ws, cols, rows, 4, rowFills);
+
+  // mobile mismatch with Centralize: the form's Mobile cell and the Verify cell go yellow
+  const vIdx = state.verifyKey ? cols.findIndex(c=>{ const f=state.currentFormat.find(x=>x.id===c.id); return f && f.source===state.verifyKey; }) : -1;
+  if(vIdx>=0){
+    const mob = autoMatch('StudentMobNo', state.headers);
+    const mIdx = cols.findIndex(c=>{ const f=state.currentFormat.find(x=>x.id===c.id); return f && f.type==='normal' && mob && f.source===mob; });
+    rows.forEach((r,ri)=>{
+      const v = String(r[cols[vIdx].id] ?? '').trim();
+      if(!v || v==='Yes') return;
+      [vIdx, mIdx].filter(i=>i>=0).forEach(i=>{
+        ws.getCell(4+ri, i+1).fill = {type:'pattern', pattern:'solid', fgColor:{argb:CELL_YELLOW}};
+      });
+    });
+  }
   borderAll(ws, 3 + rows.length, colCount);
   ws.views = [{state:'frozen', ySplit:3}];
 
